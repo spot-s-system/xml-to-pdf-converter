@@ -1,4 +1,4 @@
-import SaxonJS from "xslt3";
+import puppeteer from "puppeteer";
 
 export async function applyXsltTransformation(
   xmlContent: string,
@@ -6,22 +6,96 @@ export async function applyXsltTransformation(
 ): Promise<string> {
   console.log("🔄 XSLT transformation started");
 
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+
   try {
-    // Use SaxonJS to perform XSLT transformation
-    const result = await SaxonJS.transform({
-      stylesheetText: xslContent,
-      sourceText: xmlContent,
-      destination: "serialized",
+    const page = await browser.newPage();
+
+    // Escape content for embedding in JavaScript
+    const escapeForJs = (str: string) =>
+      str.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$");
+
+    const transformHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <div id="result"></div>
+    <script>
+        const parser = new DOMParser();
+
+        try {
+            // Parse XML and XSL
+            const xmlDoc = parser.parseFromString(\`${escapeForJs(xmlContent)}\`, "text/xml");
+            const xslDoc = parser.parseFromString(\`${escapeForJs(xslContent)}\`, "text/xml");
+
+            // Check for parsing errors
+            const xmlError = xmlDoc.querySelector("parsererror");
+            const xslError = xslDoc.querySelector("parsererror");
+
+            if (xmlError) {
+                throw new Error("XML parsing error: " + xmlError.textContent);
+            }
+            if (xslError) {
+                throw new Error("XSL parsing error: " + xslError.textContent);
+            }
+
+            // Create XSLT processor
+            const xsltProcessor = new XSLTProcessor();
+            xsltProcessor.importStylesheet(xslDoc);
+
+            // Transform
+            const resultDoc = xsltProcessor.transformToFragment(xmlDoc, document);
+
+            // Add result to page
+            document.getElementById("result").appendChild(resultDoc);
+
+            // Mark transformation as complete
+            window.transformComplete = true;
+        } catch (error) {
+            window.transformError = error.message;
+            throw error;
+        }
+    </script>
+</body>
+</html>`;
+
+    await page.setContent(transformHtml, { waitUntil: "networkidle0" });
+
+    // Wait for transformation to complete
+    await page.waitForFunction(
+      () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const win = window as any;
+        return win.transformComplete || win.transformError;
+      },
+      { timeout: 10000 }
+    );
+
+    // Check for errors
+    const error = await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (window as any).transformError;
+    });
+
+    if (error) {
+      throw new Error(`XSLT transformation failed: ${error}`);
+    }
+
+    // Get the transformed HTML
+    const transformedHtml = await page.evaluate(() => {
+      const resultDiv = document.getElementById("result");
+      return resultDiv ? resultDiv.innerHTML : "";
     });
 
     console.log("✅ XSLT transformation completed");
-    return result.principalResult as string;
-  } catch (error) {
-    console.error("❌ XSLT transformation failed:", error);
-    throw new Error(
-      `XSLT transformation failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
+    return transformedHtml;
+  } finally {
+    await browser.close();
   }
 }
