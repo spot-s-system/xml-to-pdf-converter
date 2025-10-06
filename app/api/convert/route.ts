@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     const encodedFilename = encodeURIComponent(originalFilename);
 
     // Return PDF as download
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(Buffer.from(pdfBuffer), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename*=UTF-8''${encodedFilename}`,

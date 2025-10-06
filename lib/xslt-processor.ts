@@ -65,7 +65,7 @@ export async function applyXsltTransformation(
     await page.setContent(transformHtml, { waitUntil: "networkidle" });
 
     // Wait for transformation to complete
-    const result = await page.waitForFunction(
+    await page.waitForFunction(
       () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const win = window as any;
