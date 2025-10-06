@@ -31,13 +31,13 @@ export async function generatePdfFromHtml(
     // Give it a moment to fully render
     await page.waitForTimeout(1000);
 
-    // Generate PDF
+    // Generate PDF with optimized margins
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
       margin: {
-        top: "10mm",
-        bottom: "10mm",
+        top: "5mm",
+        bottom: "5mm",
         left: "10mm",
         right: "10mm",
       },

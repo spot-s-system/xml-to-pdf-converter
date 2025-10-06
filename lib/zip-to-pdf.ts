@@ -122,17 +122,43 @@ export async function convertZipToPdf(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        * {
+            box-sizing: border-box;
+        }
         body {
             margin: 0;
-            padding: 0;
+            padding: 20px;
             font-family: "MS Gothic", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
         @page {
             size: A4;
-            margin: 10mm;
+            margin: 5mm 10mm;
         }
         .page-break {
             page-break-after: always;
+        }
+        /* Text wrapping and overflow handling */
+        table, td, th, div, p, span {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+        /* Prevent content overflow */
+        table {
+            max-width: 100%;
+            table-layout: auto !important;
+        }
+        td, th {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        /* Center content */
+        body > * {
+            margin-left: auto;
+            margin-right: auto;
         }
     </style>
 </head>
