@@ -6,8 +6,8 @@ import {
   extractInsuredPersonsFrom7200001,
   extractInsuredPersonsFromHenrei,
   extractBusinessOwnerFromKagami,
-  sanitizeFileName,
 } from "./xml-parser";
+import { generatePdfFilename } from "./document-names";
 import JSZip from "jszip";
 
 interface ExtractedFiles {
@@ -51,9 +51,8 @@ export async function convertZipToPdfZip(
       const wrappedHtml = wrapHtmlForPdf(html);
       const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
 
-      // ファイル名: {到達番号}_{事業主名}.pdf
-      const docNumber = kagamiXml.replace(/\.(xml|XML)$/, "");
-      const filename = `${docNumber}_${sanitizeFileName(businessOwner)}.pdf`;
+      // ファイル名: {事業主名}様_{通知書名}.pdf
+      const filename = generatePdfFilename([businessOwner], "kagami");
 
       pdfFiles.push({ filename, buffer: pdfBuffer });
       console.log(`✅ Generated: ${filename}`);
@@ -72,20 +71,31 @@ export async function convertZipToPdfZip(
     const xslContent = files[xsl7130001] as string;
     const persons = extractInsuredPersonsFrom7130001(xmlContent);
 
-    for (const person of persons) {
+    if (persons.length > 0) {
       try {
-        const html = await applyXsltTransformation(
-          person.xmlContent,
-          optimizeXslForPdf(xslContent)
-        );
-        const wrappedHtml = wrapHtmlForPdf(html);
-        const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+        // 複数の被保険者のHTMLを結合
+        const htmlPages: string[] = [];
+        const names: string[] = [];
 
-        const filename = `7130001_${sanitizeFileName(person.name)}.pdf`;
+        for (const person of persons) {
+          const html = await applyXsltTransformation(
+            person.xmlContent,
+            optimizeXslForPdf(xslContent)
+          );
+          htmlPages.push(html);
+          names.push(person.name);
+        }
+
+        // 全てのHTMLを1つのPDFにまとめる
+        const combinedHtml = combineHtmlPages(htmlPages);
+        const pdfBuffer = await generatePdfFromHtml(combinedHtml);
+
+        // ファイル名: {名前}様{他N名}_{通知書名}.pdf
+        const filename = generatePdfFilename(names, "7130001");
         pdfFiles.push({ filename, buffer: pdfBuffer });
-        console.log(`✅ Generated: ${filename}`);
+        console.log(`✅ Generated: ${filename} (${persons.length}名)`);
       } catch (error) {
-        console.error(`Failed to convert 7130001 for ${person.name}:`, error);
+        console.error(`Failed to convert 7130001:`, error);
       }
     }
   }
@@ -99,20 +109,31 @@ export async function convertZipToPdfZip(
     const xslContent = files[xsl7200001] as string;
     const persons = extractInsuredPersonsFrom7200001(xmlContent);
 
-    for (const person of persons) {
+    if (persons.length > 0) {
       try {
-        const html = await applyXsltTransformation(
-          person.xmlContent,
-          optimizeXslForPdf(xslContent)
-        );
-        const wrappedHtml = wrapHtmlForPdf(html);
-        const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+        // 複数の被保険者のHTMLを結合
+        const htmlPages: string[] = [];
+        const names: string[] = [];
 
-        const filename = `7200001_${sanitizeFileName(person.name)}.pdf`;
+        for (const person of persons) {
+          const html = await applyXsltTransformation(
+            person.xmlContent,
+            optimizeXslForPdf(xslContent)
+          );
+          htmlPages.push(html);
+          names.push(person.name);
+        }
+
+        // 全てのHTMLを1つのPDFにまとめる
+        const combinedHtml = combineHtmlPages(htmlPages);
+        const pdfBuffer = await generatePdfFromHtml(combinedHtml);
+
+        // ファイル名: {名前}様{他N名}_{通知書名}.pdf
+        const filename = generatePdfFilename(names, "7200001");
         pdfFiles.push({ filename, buffer: pdfBuffer });
-        console.log(`✅ Generated: ${filename}`);
+        console.log(`✅ Generated: ${filename} (${persons.length}名)`);
       } catch (error) {
-        console.error(`Failed to convert 7200001 for ${person.name}:`, error);
+        console.error(`Failed to convert 7200001:`, error);
       }
     }
   }
@@ -126,20 +147,31 @@ export async function convertZipToPdfZip(
     const xslContent = files[xslHenrei] as string;
     const persons = extractInsuredPersonsFromHenrei(xmlContent);
 
-    for (const person of persons) {
+    if (persons.length > 0) {
       try {
-        const html = await applyXsltTransformation(
-          person.xmlContent,
-          optimizeXslForPdf(xslContent)
-        );
-        const wrappedHtml = wrapHtmlForPdf(html);
-        const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+        // 複数の被保険者のHTMLを結合
+        const htmlPages: string[] = [];
+        const names: string[] = [];
 
-        const filename = `henrei_${sanitizeFileName(person.name)}.pdf`;
+        for (const person of persons) {
+          const html = await applyXsltTransformation(
+            person.xmlContent,
+            optimizeXslForPdf(xslContent)
+          );
+          htmlPages.push(html);
+          names.push(person.name);
+        }
+
+        // 全てのHTMLを1つのPDFにまとめる
+        const combinedHtml = combineHtmlPages(htmlPages);
+        const pdfBuffer = await generatePdfFromHtml(combinedHtml);
+
+        // ファイル名: {名前}様{他N名}_{通知書名}.pdf
+        const filename = generatePdfFilename(names, "henrei");
         pdfFiles.push({ filename, buffer: pdfBuffer });
-        console.log(`✅ Generated: ${filename}`);
+        console.log(`✅ Generated: ${filename} (${persons.length}名)`);
       } catch (error) {
-        console.error(`Failed to convert henrei for ${person.name}:`, error);
+        console.error(`Failed to convert henrei:`, error);
       }
     }
   }
@@ -167,6 +199,55 @@ export async function convertZipToPdfZip(
   console.log(`📦 Created ZIP with ${pdfFiles.length} PDFs + ${Object.keys(files).length} original files`);
 
   return zipBuffer;
+}
+
+/**
+ * 複数のHTMLページを1つのPDFにまとめる
+ */
+function combineHtmlPages(htmlPages: string[]): string {
+  const combinedContent = htmlPages
+    .map((html) => `<div class="document-container">${html}</div>`)
+    .join('<div class="page-break"></div>');
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: "MS Gothic", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        @page {
+            size: A4;
+            margin: 5mm 10mm;
+        }
+        .document-container {
+            margin: 0 auto;
+        }
+        .page-break {
+            page-break-after: always;
+        }
+    </style>
+</head>
+<body>
+    ${combinedContent}
+    <script>
+        window.addEventListener('load', () => {
+            window.scalingComplete = true;
+        });
+    </script>
+</body>
+</html>`;
 }
 
 /**
