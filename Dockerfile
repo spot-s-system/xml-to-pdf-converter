@@ -2,12 +2,16 @@
 
 FROM node:20-slim
 
-# Install Chrome dependencies
+# Install Chrome dependencies and Japanese fonts
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     ca-certificates \
     fonts-liberation \
+    fonts-noto-cjk \
+    fonts-noto-cjk-extra \
+    fonts-ipafont-gothic \
+    fonts-ipafont-mincho \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
