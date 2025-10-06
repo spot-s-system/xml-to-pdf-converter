@@ -1,6 +1,9 @@
 import puppeteer from "puppeteer-core";
 import chromium_pkg from "@sparticuz/chromium";
 
+// Cache the executable path globally to avoid race conditions
+let cachedExecutablePath: string | undefined;
+
 export async function generatePdfFromHtml(
   htmlContent: string
 ): Promise<Buffer> {
@@ -13,11 +16,25 @@ export async function generatePdfFromHtml(
 
   let browser;
   try {
+    let execPath: string | undefined;
+
+    if (isProduction) {
+      // Use cached path if available to avoid concurrent decompression
+      if (!cachedExecutablePath) {
+        console.log("📦 Getting executable path for first time");
+        cachedExecutablePath = await chromium_pkg.executablePath();
+        // Wait a bit to ensure file is ready
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      execPath = cachedExecutablePath;
+      console.log("📦 Using executable path:", execPath);
+    } else {
+      execPath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    }
+
     browser = await puppeteer.launch({
       args: isProduction ? chromium_pkg.args : [],
-      executablePath: isProduction
-        ? await chromium_pkg.executablePath()
-        : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      executablePath: execPath,
       headless: true,
     });
     console.log("✅ Browser launched successfully");
