@@ -5,25 +5,35 @@ export async function applyXsltTransformation(
   xmlContent: string,
   xslContent: string
 ): Promise<string> {
+  console.log("🔄 XSLT transformation started");
+
   // Use different chromium based on environment
   const isProduction = process.env.VERCEL || process.env.NODE_ENV === "production";
 
-  const browser = await chromium.launch({
-    args: isProduction
-      ? [
-          ...chromium_pkg.args,
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--single-process',
-          '--no-zygote',
-          '--no-sandbox',
-        ]
-      : [],
-    executablePath: isProduction
-      ? await chromium_pkg.executablePath('/tmp')
-      : undefined,
-    headless: true,
-  });
+  let browser;
+  try {
+    const execPath = isProduction ? await chromium_pkg.executablePath('/tmp') : undefined;
+    console.log("📦 XSLT Chromium executable path:", execPath);
+
+    browser = await chromium.launch({
+      args: isProduction
+        ? [
+            ...chromium_pkg.args,
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--single-process',
+            '--no-zygote',
+            '--no-sandbox',
+          ]
+        : [],
+      executablePath: execPath,
+      headless: true,
+    });
+    console.log("✅ XSLT Browser launched successfully");
+  } catch (error) {
+    console.error("❌ XSLT Browser launch failed:", error);
+    throw new Error(`XSLT Browser launch failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
   try {
     const page = await browser.newPage();

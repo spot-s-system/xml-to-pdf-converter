@@ -9,22 +9,32 @@ export async function generatePdfFromHtml(
   // Use different chromium based on environment
   const isProduction = process.env.VERCEL || process.env.NODE_ENV === "production";
 
-  const browser = await chromium.launch({
-    args: isProduction
-      ? [
-          ...chromium_pkg.args,
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--single-process',
-          '--no-zygote',
-          '--no-sandbox',
-        ]
-      : [],
-    executablePath: isProduction
-      ? await chromium_pkg.executablePath('/tmp')
-      : undefined,
-    headless: true,
-  });
+  console.log("📍 Environment:", { isProduction, VERCEL: process.env.VERCEL });
+
+  let browser;
+  try {
+    const execPath = isProduction ? await chromium_pkg.executablePath('/tmp') : undefined;
+    console.log("📦 Chromium executable path:", execPath);
+
+    browser = await chromium.launch({
+      args: isProduction
+        ? [
+            ...chromium_pkg.args,
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--single-process',
+            '--no-zygote',
+            '--no-sandbox',
+          ]
+        : [],
+      executablePath: execPath,
+      headless: true,
+    });
+    console.log("✅ Browser launched successfully");
+  } catch (error) {
+    console.error("❌ Browser launch failed:", error);
+    throw new Error(`Browser launch failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
   try {
     const page = await browser.newPage();
