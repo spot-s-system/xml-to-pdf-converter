@@ -1,5 +1,6 @@
 import { applyXsltTransformation } from "./xslt-processor";
 import { generatePdfFromHtml } from "./pdf-generator";
+import { optimizeXslForPdf } from "./xsl-adjuster";
 
 interface ExtractedFiles {
   [filename: string]: string | Buffer;
@@ -38,7 +39,7 @@ export async function convertZipToPdf(
       documentGroups.push({
         mainXml: kagamiXml,
         mainXmlContent: bodyContent,
-        xslContent: files[kagamiXsl] as string,
+        xslContent: optimizeXslForPdf(files[kagamiXsl] as string),
         title: "表紙",
       });
     }
@@ -59,7 +60,7 @@ export async function convertZipToPdf(
         documentGroups.push({
           mainXml: xmlFile,
           mainXmlContent: files[xmlFile] as string,
-          xslContent: files[xslFile] as string,
+          xslContent: optimizeXslForPdf(files[xslFile] as string),
           title,
         });
       }
@@ -77,7 +78,7 @@ export async function convertZipToPdf(
         documentGroups.push({
           mainXml: xmlFile,
           mainXmlContent: files[xmlFile] as string,
-          xslContent: files[xslFile] as string,
+          xslContent: optimizeXslForPdf(files[xslFile] as string),
           title: xmlFile.replace(".xml", ""),
         });
       }
