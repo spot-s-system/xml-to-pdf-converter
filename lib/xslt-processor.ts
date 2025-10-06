@@ -1,4 +1,4 @@
-import { chromium } from "playwright-core";
+import puppeteer from "puppeteer-core";
 import chromium_pkg from "@sparticuz/chromium";
 
 export async function applyXsltTransformation(
@@ -12,26 +12,11 @@ export async function applyXsltTransformation(
 
   let browser;
   try {
-    // Set font config for Lambda
-    if (isProduction) {
-      process.env.FONTCONFIG_PATH = '/tmp';
-    }
-
-    const execPath = isProduction ? await chromium_pkg.executablePath() : undefined;
-    console.log("📦 XSLT Chromium executable path:", execPath);
-
-    browser = await chromium.launch({
-      args: isProduction
-        ? [
-            ...chromium_pkg.args,
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--single-process',
-            '--no-zygote',
-            '--no-sandbox',
-          ]
-        : [],
-      executablePath: execPath,
+    browser = await puppeteer.launch({
+      args: isProduction ? chromium_pkg.args : [],
+      executablePath: isProduction
+        ? await chromium_pkg.executablePath()
+        : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       headless: true,
     });
     console.log("✅ XSLT Browser launched successfully");
@@ -94,7 +79,7 @@ export async function applyXsltTransformation(
 </body>
 </html>`;
 
-    await page.setContent(transformHtml, { waitUntil: "networkidle" });
+    await page.setContent(transformHtml, { waitUntil: "networkidle0" });
 
     // Wait for transformation to complete
     await page.waitForFunction(

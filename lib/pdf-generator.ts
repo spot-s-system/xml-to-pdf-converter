@@ -1,4 +1,4 @@
-import { chromium } from "playwright-core";
+import puppeteer from "puppeteer-core";
 import chromium_pkg from "@sparticuz/chromium";
 
 export async function generatePdfFromHtml(
@@ -13,28 +13,11 @@ export async function generatePdfFromHtml(
 
   let browser;
   try {
-    // Set font config for Lambda
-    if (isProduction) {
-      process.env.FONTCONFIG_PATH = '/tmp';
-    }
-
-    const execPath = isProduction
-      ? await chromium_pkg.executablePath()
-      : undefined;
-    console.log("📦 Chromium executable path:", execPath);
-
-    browser = await chromium.launch({
-      args: isProduction
-        ? [
-            ...chromium_pkg.args,
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--single-process',
-            '--no-zygote',
-            '--no-sandbox',
-          ]
-        : [],
-      executablePath: execPath,
+    browser = await puppeteer.launch({
+      args: isProduction ? chromium_pkg.args : [],
+      executablePath: isProduction
+        ? await chromium_pkg.executablePath()
+        : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       headless: true,
     });
     console.log("✅ Browser launched successfully");
@@ -47,15 +30,15 @@ export async function generatePdfFromHtml(
     const page = await browser.newPage();
 
     // Set viewport for consistent rendering
-    await page.setViewportSize({ width: 1200, height: 1600 });
+    await page.setViewport({ width: 1200, height: 1600 });
 
     console.log("🌐 Loading HTML content");
-    await page.setContent(htmlContent, { waitUntil: "networkidle" });
+    await page.setContent(htmlContent, { waitUntil: "networkidle0" });
 
     console.log("✨ Content rendering complete");
 
     // Give it a moment to fully render
-    await page.waitForTimeout(1000);
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Generate PDF with optimized margins
     const pdfBuffer = await page.pdf({

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { chromium } from 'playwright-core';
+import puppeteer from 'puppeteer-core';
 import chromium_pkg from '@sparticuz/chromium';
 
 export async function GET() {
@@ -20,12 +20,9 @@ export async function GET() {
     // Try to get executable path
     let execPath;
     try {
-      // Set font config for Lambda
-      if (isProduction) {
-        process.env.FONTCONFIG_PATH = '/tmp';
-      }
-
-      execPath = isProduction ? await chromium_pkg.executablePath() : 'local';
+      execPath = isProduction
+        ? await chromium_pkg.executablePath()
+        : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
       console.log('✅ Executable path obtained:', execPath);
     } catch (error) {
       console.error('❌ Failed to get executable path:', error);
@@ -35,18 +32,9 @@ export async function GET() {
     // Try to launch browser
     let browserLaunched = false;
     try {
-      const browser = await chromium.launch({
-        args: isProduction
-          ? [
-              ...chromium_pkg.args,
-              '--disable-dev-shm-usage',
-              '--disable-gpu',
-              '--single-process',
-              '--no-zygote',
-              '--no-sandbox',
-            ]
-          : [],
-        executablePath: isProduction ? execPath : undefined,
+      const browser = await puppeteer.launch({
+        args: isProduction ? chromium_pkg.args : [],
+        executablePath: execPath,
         headless: true,
       });
 
