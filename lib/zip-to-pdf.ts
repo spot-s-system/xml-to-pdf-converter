@@ -20,8 +20,7 @@ interface PdfFile {
 }
 
 export async function convertZipToPdfZip(
-  files: ExtractedFiles,
-  originalFilename: string
+  files: ExtractedFiles
 ): Promise<Buffer> {
   const pdfFiles: PdfFile[] = [];
 

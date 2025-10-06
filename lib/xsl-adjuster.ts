@@ -5,7 +5,7 @@
 
 // A4 dimensions at 96dpi
 const A4_WIDTH_PX = 794; // 210mm at 96dpi
-const A4_HEIGHT_PX = 1123; // 297mm at 96dpi
+// const A4_HEIGHT_PX = 1123; // 297mm at 96dpi (not currently used)
 
 // Common original widths in government documents
 const COMMON_ORIGINAL_WIDTH = 640;

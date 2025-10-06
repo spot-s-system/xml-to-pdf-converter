@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Convert XML files to individual PDFs and create ZIP
-    const zipBuffer = await convertZipToPdfZip(files, file.name);
+    const zipBuffer = await convertZipToPdfZip(files);
 
     // Create safe filename (encode Japanese characters)
     const originalFilename = file.name.replace(".zip", "_converted.zip");
