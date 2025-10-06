@@ -1,5 +1,5 @@
 import { chromium } from "playwright-core";
-import chromium_pkg from "@sparticuz/chromium-min";
+import chromium_pkg from "@sparticuz/chromium";
 
 export async function applyXsltTransformation(
   xmlContent: string,
@@ -12,7 +12,7 @@ export async function applyXsltTransformation(
 
   let browser;
   try {
-    const execPath = isProduction ? await chromium_pkg.executablePath('/tmp') : undefined;
+    const execPath = isProduction ? await chromium_pkg.executablePath() : undefined;
     console.log("📦 XSLT Chromium executable path:", execPath);
 
     browser = await chromium.launch({

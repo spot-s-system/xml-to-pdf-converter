@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { chromium } from 'playwright-core';
-import chromium_pkg from '@sparticuz/chromium-min';
+import chromium_pkg from '@sparticuz/chromium';
 
 export async function GET() {
   try {
@@ -20,7 +20,7 @@ export async function GET() {
     // Try to get executable path
     let execPath;
     try {
-      execPath = isProduction ? await chromium_pkg.executablePath('/tmp') : 'local';
+      execPath = isProduction ? await chromium_pkg.executablePath() : 'local';
       console.log('✅ Executable path obtained:', execPath);
     } catch (error) {
       console.error('❌ Failed to get executable path:', error);
