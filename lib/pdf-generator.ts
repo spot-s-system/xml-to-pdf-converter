@@ -1,39 +1,33 @@
-import puppeteer from "puppeteer";
+import { getBrowser } from "./browser-pool";
 
 export async function generatePdfFromHtml(
   htmlContent: string
 ): Promise<Buffer> {
   console.log("🚀 PDF generation started");
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
+  const browser = await getBrowser();
+  const page = await browser.newPage();
 
   try {
-    const page = await browser.newPage();
 
     // Set viewport for consistent rendering
     await page.setViewport({ width: 1200, height: 1600 });
 
     console.log("🌐 Loading HTML content");
-    await page.setContent(htmlContent, { waitUntil: "networkidle0" });
+    await page.setContent(htmlContent, { waitUntil: "domcontentloaded" });
 
-    console.log("✨ Content rendering complete");
-
-    // Wait for scaling to complete
+    // Wait for rendering to complete
     await page.waitForFunction(
       () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (window as any).scalingComplete === true;
       },
-      { timeout: 5000 }
+      { timeout: 3000 }
     ).catch(() => {
-      console.log("⚠️ Scaling timeout - proceeding without scaling");
+      console.log("⚠️ Rendering timeout - proceeding");
     });
 
-    // Give it a moment to fully render after scaling
-    await new Promise(resolve => setTimeout(resolve, 500));
+    console.log("✨ Content rendering complete");
 
     // Generate PDF with optimized margins
     const pdfBuffer = await page.pdf({
@@ -51,6 +45,6 @@ export async function generatePdfFromHtml(
 
     return Buffer.from(pdfBuffer);
   } finally {
-    await browser.close();
+    await page.close();
   }
 }

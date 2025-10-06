@@ -1,4 +1,4 @@
-import puppeteer from "puppeteer";
+import { getBrowser } from "./browser-pool";
 
 export async function applyXsltTransformation(
   xmlContent: string,
@@ -6,13 +6,10 @@ export async function applyXsltTransformation(
 ): Promise<string> {
   console.log("🔄 XSLT transformation started");
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
+  const browser = await getBrowser();
+  const page = await browser.newPage();
 
   try {
-    const page = await browser.newPage();
 
     // Escape content for embedding in JavaScript
     const escapeForJs = (str: string) =>
@@ -65,7 +62,7 @@ export async function applyXsltTransformation(
 </body>
 </html>`;
 
-    await page.setContent(transformHtml, { waitUntil: "networkidle0" });
+    await page.setContent(transformHtml, { waitUntil: "domcontentloaded" });
 
     // Wait for transformation to complete
     await page.waitForFunction(
@@ -96,6 +93,6 @@ export async function applyXsltTransformation(
     console.log("✅ XSLT transformation completed");
     return transformedHtml;
   } finally {
-    await browser.close();
+    await page.close();
   }
 }
