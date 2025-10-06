@@ -1,36 +1,173 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# XML to PDF Converter
 
-## Getting Started
+公文書ZIPファイル（XML/XSL形式）をPDFに変換するWebアプリケーション
 
-First, run the development server:
+## 概要
+
+このアプリケーションは、日本の公的機関で使用される電子申請ファイル（ZIP形式）を受け取り、内部のXML/XSLドキュメントをPDFに変換します。
+
+### 主な機能
+
+- ✅ ZIPファイルのドラッグ&ドロップアップロード
+- ✅ ネストされたZIPファイルの自動展開
+- ✅ XSLT変換によるXML→HTML変換
+- ✅ Puppeteerを使用したPDF生成
+- ✅ 日本語フォント完全対応
+- ✅ A4サイズ最適化
+
+### 対応ドキュメント形式
+
+- 標準報酬決定通知書 (7130001.xml)
+- 70歳以上被用者通知書 (7200001.xml)
+- 返戻票 (henrei.xml)
+- 表紙 (kagami.xml)
+- その他汎用XML/XSLペア
+
+## 開発環境のセットアップ
+
+### 必要な環境
+
+- Node.js 20以上
+- npm または yarn
+
+### ローカル開発（推奨）
+
+Puppeteerを使用するため、開発環境でも必要な依存関係をインストールする必要があります。
 
 ```bash
+# 依存関係のインストール
+npm install
+
+# Puppeteerブラウザのインストール（初回のみ）
+npx puppeteer browsers install chrome
+
+# 開発サーバーの起動
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ブラウザで [http://localhost:3000](http://localhost:3000) を開いてアプリケーションを確認できます。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Docker開発環境
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+本番環境と同じ環境で開発・テストする場合はDockerを使用します。
 
-## Learn More
+```bash
+# Dockerイメージのビルド
+docker build -t xml-to-pdf-converter .
 
-To learn more about Next.js, take a look at the following resources:
+# コンテナの起動
+docker run -p 3000:3000 xml-to-pdf-converter
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+ブラウザで [http://localhost:3000](http://localhost:3000) を開いてアプリケーションを確認できます。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 開発時のヒント
 
-## Deploy on Vercel
+- ローカル開発では `npm run dev` が最も高速（Turbopack使用）
+- PDF生成のテストは `/api/test-chromium` エンドポイントでChromiumの動作確認が可能
+- 日本語フォントの表示を確認する場合はDockerコンテナでのテストを推奨
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## プロジェクト構成
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+.
+├── app/
+│   ├── api/convert/route.ts      # ZIP→PDF変換APIエンドポイント
+│   ├── api/test-chromium/route.ts # Chromiumテストエンドポイント
+│   ├── page.tsx                   # メインUIページ
+│   └── layout.tsx                 # アプリケーションレイアウト
+├── lib/
+│   ├── zip-to-pdf.ts             # ZIP処理とドキュメント構成
+│   ├── xslt-processor.ts         # XSLT変換処理
+│   ├── xsl-adjuster.ts           # XSLスタイルシートA4最適化
+│   ├── pdf-generator.ts          # Puppeteer PDF生成
+│   └── utils.ts                  # ユーティリティ関数
+├── components/
+│   ├── file-dropzone.tsx         # ファイルアップロードUI
+│   └── ui/                       # shadcn/ui コンポーネント
+├── Dockerfile                     # 本番環境コンテナ定義
+└── render.yaml                    # Renderデプロイ設定
+```
+
+## 技術スタック
+
+- **フレームワーク**: Next.js 15 (App Router)
+- **UI**: React 19 + Tailwind CSS + shadcn/ui
+- **PDF生成**: Puppeteer
+- **XSLT処理**: ブラウザネイティブXSLTProcessor
+- **デプロイ**: Docker (Render対応)
+
+## ビルドとデプロイ
+
+### ローカルビルド
+
+```bash
+# プロダクションビルド
+npm run build
+
+# ビルドしたアプリの起動
+npm start
+```
+
+### Renderへのデプロイ
+
+`render.yaml` を使用してRenderに自動デプロイされます。
+
+```yaml
+services:
+  - type: web
+    name: xml-to-pdf-converter
+    runtime: docker
+    plan: free
+    region: oregon
+```
+
+### Docker本番環境
+
+```bash
+# イメージビルド
+docker build -t xml-to-pdf-converter .
+
+# コンテナ起動
+docker run -p 3000:3000 \
+  -e NODE_ENV=production \
+  xml-to-pdf-converter
+```
+
+## 使い方
+
+1. アプリケーションを開く
+2. 公文書ZIPファイルをドラッグ&ドロップ、または選択
+3. 「PDFに変換」ボタンをクリック
+4. 変換されたPDFが自動ダウンロードされます
+
+## トラブルシューティング
+
+### Puppeteerが起動しない
+
+ローカル開発環境でPuppeteerが起動しない場合：
+
+```bash
+# Chromiumを再インストール
+npx puppeteer browsers install chrome
+```
+
+### 日本語フォントが表示されない
+
+Dockerコンテナ内で日本語が表示されない場合は、Dockerfileに以下のフォントが含まれていることを確認：
+
+- fonts-noto-cjk
+- fonts-ipafont-gothic
+- fonts-ipafont-mincho
+
+### メモリ不足エラー
+
+大きなZIPファイルを処理する場合、Node.jsのメモリ制限を増やす：
+
+```bash
+NODE_OPTIONS="--max-old-space-size=4096" npm start
+```
+
+## ライセンス
+
+MIT
