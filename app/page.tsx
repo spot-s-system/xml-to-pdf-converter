@@ -51,12 +51,12 @@ export default function Home() {
 
       setProgress(90);
 
-      // PDFをダウンロード
+      // ZIPファイルをダウンロード
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${zipFile.name.replace(".zip", "")}.pdf`;
+      a.download = `${zipFile.name.replace(".zip", "")}_converted.zip`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -85,7 +85,7 @@ export default function Home() {
             <h1 className="text-4xl font-bold">公文書ZIP to PDF変換</h1>
           </div>
           <p className="text-muted-foreground">
-            公文書ZIPファイルをアップロードして、自動的にPDFを生成
+            公文書ZIPファイルをアップロードして、個別PDFを含むZIPファイルを生成
           </p>
         </div>
 
