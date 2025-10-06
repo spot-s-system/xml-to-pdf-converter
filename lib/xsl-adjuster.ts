@@ -100,6 +100,35 @@ export function fixHtmlTags(xslContent: string): string {
 }
 
 /**
+ * Add text wrapping styles for pre tags to handle long text
+ */
+export function addPreTextWrapping(xslContent: string): string {
+  let adjusted = xslContent;
+
+  // Add CSS rule for pre.oshirase to enable text wrapping at 27 characters
+  const preStyles = `
+    pre.oshirase {
+      white-space: pre-wrap !important;
+      word-wrap: break-word !important;
+      overflow-wrap: break-word !important;
+      max-width: 100%;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+  `;
+
+  // Insert before closing </style> tag
+  adjusted = adjusted.replace(
+    /<\/style>/i,
+    `${preStyles}</style>`
+  );
+
+  return adjusted;
+}
+
+/**
  * Main function to optimize XSL for A4 PDF output
  */
 export function optimizeXslForPdf(xslContent: string): string {
@@ -109,7 +138,10 @@ export function optimizeXslForPdf(xslContent: string): string {
   // Step 2: Adjust dimensions for A4
   optimized = adjustXslForA4(optimized);
 
-  // Step 3: Enhance for better PDF rendering
+  // Step 3: Add text wrapping for pre tags
+  optimized = addPreTextWrapping(optimized);
+
+  // Step 4: Enhance for better PDF rendering
   optimized = optimized.replace(
     /<head>/i,
     `<head>
