@@ -1,10 +1,18 @@
-import { chromium } from "playwright";
+import { chromium } from "playwright-core";
+import chromium_pkg from "@sparticuz/chromium";
 
 export async function applyXsltTransformation(
   xmlContent: string,
   xslContent: string
 ): Promise<string> {
+  // Use different chromium based on environment
+  const isProduction = process.env.VERCEL || process.env.NODE_ENV === "production";
+
   const browser = await chromium.launch({
+    args: isProduction ? chromium_pkg.args : [],
+    executablePath: isProduction
+      ? await chromium_pkg.executablePath()
+      : undefined,
     headless: true,
   });
 
