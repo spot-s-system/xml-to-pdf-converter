@@ -8,3 +8,5 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: MAX_REQUESTS_PER_BROWSER
+        value: "30"  # Lower limit for free tier to prevent memory issues
