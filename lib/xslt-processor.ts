@@ -9,9 +9,18 @@ export async function applyXsltTransformation(
   const isProduction = process.env.VERCEL || process.env.NODE_ENV === "production";
 
   const browser = await chromium.launch({
-    args: isProduction ? chromium_pkg.args : [],
+    args: isProduction
+      ? [
+          ...chromium_pkg.args,
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--single-process',
+          '--no-zygote',
+          '--no-sandbox',
+        ]
+      : [],
     executablePath: isProduction
-      ? await chromium_pkg.executablePath()
+      ? await chromium_pkg.executablePath('/tmp')
       : undefined,
     headless: true,
   });

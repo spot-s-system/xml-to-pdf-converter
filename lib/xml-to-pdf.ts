@@ -18,9 +18,18 @@ export async function convertXmlToPdf(
 
   // ブラウザを起動
   const browser = await chromium.launch({
-    args: isProduction ? chromium_pkg.args : [],
+    args: isProduction
+      ? [
+          ...chromium_pkg.args,
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--single-process',
+          '--no-zygote',
+          '--no-sandbox',
+        ]
+      : [],
     executablePath: isProduction
-      ? await chromium_pkg.executablePath()
+      ? await chromium_pkg.executablePath('/tmp')
       : undefined,
     headless: true,
   });
