@@ -139,7 +139,14 @@ export function optimizeXslForPdf(xslContent: string): string {
   // Step 2: Add text wrapping for pre tags
   optimized = addPreTextWrapping(optimized);
 
-  // Step 3: Enhance for better PDF rendering
+  // Step 3: Normalize HTML tag case and enhance for PDF rendering
+  // First convert all HTML tags to lowercase to avoid case mismatch issues
+  optimized = optimized.replace(/<(\/?)HTML>/gi, '<$1html>');
+  optimized = optimized.replace(/<(\/?)HEAD>/gi, '<$1head>');
+  optimized = optimized.replace(/<(\/?)BODY>/gi, '<$1body>');
+  optimized = optimized.replace(/<(\/?)TITLE>/gi, '<$1title>');
+
+  // Now add meta tags after <head>
   optimized = optimized.replace(
     /<head>/i,
     `<head>

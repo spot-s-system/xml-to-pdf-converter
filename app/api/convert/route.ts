@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import JSZip from "jszip";
-import { convertZipToPdf } from "@/lib/zip-to-pdf";
+import { convertZipToPdfZip } from "@/lib/zip-to-pdf";
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,17 +56,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Convert XML files to PDF
-    const pdfBuffer = await convertZipToPdf(files);
+    // Convert XML files to individual PDFs and create ZIP
+    const zipBuffer = await convertZipToPdfZip(files, file.name);
 
     // Create safe filename (encode Japanese characters)
-    const originalFilename = file.name.replace(".zip", ".pdf");
+    const originalFilename = file.name.replace(".zip", "_converted.zip");
     const encodedFilename = encodeURIComponent(originalFilename);
 
-    // Return PDF as download
-    return new NextResponse(Buffer.from(pdfBuffer), {
+    // Return ZIP as download
+    return new NextResponse(Buffer.from(zipBuffer), {
       headers: {
-        "Content-Type": "application/pdf",
+        "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename*=UTF-8''${encodedFilename}`,
       },
     });

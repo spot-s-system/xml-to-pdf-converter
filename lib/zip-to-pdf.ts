@@ -1,122 +1,179 @@
 import { applyXsltTransformation } from "./xslt-processor";
 import { generatePdfFromHtml } from "./pdf-generator";
 import { optimizeXslForPdf } from "./xsl-adjuster";
+import {
+  extractInsuredPersonsFrom7130001,
+  extractInsuredPersonsFrom7200001,
+  extractInsuredPersonsFromHenrei,
+  extractBusinessOwnerFromKagami,
+  sanitizeFileName,
+} from "./xml-parser";
+import JSZip from "jszip";
 
 interface ExtractedFiles {
   [filename: string]: string | Buffer;
 }
 
-interface DocumentGroup {
-  mainXml: string;
-  mainXmlContent: string;
-  xslContent: string;
-  title: string;
+interface PdfFile {
+  filename: string;
+  buffer: Buffer;
 }
 
-export async function convertZipToPdf(
-  files: ExtractedFiles
+export async function convertZipToPdfZip(
+  files: ExtractedFiles,
+  originalFilename: string
 ): Promise<Buffer> {
-  // Identify document structure
-  const documentGroups: DocumentGroup[] = [];
+  const pdfFiles: PdfFile[] = [];
 
-  // Find kagami.xml (cover page) if exists
+  // 表紙（kagami）の処理
+  // 到達番号のXMLファイルを検出（通知書以外のXML）
   const kagamiXml = Object.keys(files).find(
-    (f) => f.includes("kagami") && f.endsWith(".xml")
+    (f) => !f.includes("7130001") && !f.includes("7200001") && !f.includes("henrei") && f.endsWith(".xml")
   );
+
   const kagamiXsl = Object.keys(files).find(
     (f) => f.includes("kagami") && f.endsWith(".xsl")
   );
 
-  // Add kagami as first document if exists
+  console.log(`🔍 Detected kagami XML: ${kagamiXml}, XSL: ${kagamiXsl}`);
+
   if (kagamiXml && kagamiXsl) {
-    const kagamiXmlContent = files[kagamiXml] as string;
-    // Extract the main BODY content from kagami
-    const bodyMatch = kagamiXmlContent.match(
-      /<BODY[^>]*>([\s\S]*?)<\/BODY>/i
-    );
-    if (bodyMatch) {
-      const bodyContent = bodyMatch[0];
-      documentGroups.push({
-        mainXml: kagamiXml,
-        mainXmlContent: bodyContent,
-        xslContent: optimizeXslForPdf(files[kagamiXsl] as string),
-        title: "表紙",
-      });
-    }
-  }
+    const xmlContent = files[kagamiXml] as string;
+    const xslContent = files[kagamiXsl] as string;
+    const businessOwner = extractBusinessOwnerFromKagami(xmlContent);
 
-  // Find notification documents (7130001, 7200001, henrei, etc.)
-  const notificationPatterns = [
-    { pattern: /^7130001\.xml$/i, title: "標準報酬決定通知書" },
-    { pattern: /^7200001\.xml$/i, title: "70歳以上被用者通知書" },
-    { pattern: /^henrei\.xml$/i, title: "返戻票" },
-  ];
-
-  for (const { pattern, title } of notificationPatterns) {
-    const xmlFile = Object.keys(files).find((f) => pattern.test(f));
-    if (xmlFile) {
-      const xslFile = xmlFile.replace(".xml", ".xsl");
-      if (files[xslFile]) {
-        documentGroups.push({
-          mainXml: xmlFile,
-          mainXmlContent: files[xmlFile] as string,
-          xslContent: optimizeXslForPdf(files[xslFile] as string),
-          title,
-        });
-      }
-    }
-  }
-
-  // If no structured documents found, try to find any XML/XSL pairs
-  if (documentGroups.length === 0) {
-    const xmlFiles = Object.keys(files).filter(
-      (f) => f.endsWith(".xml") && !f.includes("kagami")
-    );
-    for (const xmlFile of xmlFiles) {
-      const xslFile = xmlFile.replace(".xml", ".xsl");
-      if (files[xslFile]) {
-        documentGroups.push({
-          mainXml: xmlFile,
-          mainXmlContent: files[xmlFile] as string,
-          xslContent: optimizeXslForPdf(files[xslFile] as string),
-          title: xmlFile.replace(".xml", ""),
-        });
-      }
-    }
-  }
-
-  if (documentGroups.length === 0) {
-    throw new Error(
-      "No valid XML/XSL document pairs found in the ZIP archive"
-    );
-  }
-
-  // Convert each document group to HTML
-  const htmlPages: string[] = [];
-
-  for (const group of documentGroups) {
     try {
+      console.log(`🔄 Processing kagami: ${kagamiXml}`);
       const html = await applyXsltTransformation(
-        group.mainXmlContent,
-        group.xslContent
+        xmlContent,
+        optimizeXslForPdf(xslContent)
       );
-      htmlPages.push(html);
+      const wrappedHtml = wrapHtmlForPdf(html);
+      const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+
+      // ファイル名: {到達番号}_{事業主名}.pdf
+      const docNumber = kagamiXml.replace(/\.(xml|XML)$/, "");
+      const filename = `${docNumber}_${sanitizeFileName(businessOwner)}.pdf`;
+
+      pdfFiles.push({ filename, buffer: pdfBuffer });
+      console.log(`✅ Generated: ${filename}`);
     } catch (error) {
-      console.error(`Failed to transform ${group.mainXml}:`, error);
-      // Add error page
-      htmlPages.push(`
-        <div>
-          <h1>変換エラー</h1>
-          <p>ドキュメント: ${group.title}</p>
-          <p>エラー: ${error instanceof Error ? error.message : String(error)}</p>
-        </div>
-      `);
+      console.error(`❌ Failed to convert ${kagamiXml}:`, error);
+      console.error(`Stack trace:`, error instanceof Error ? error.stack : "");
     }
   }
 
-  // Combine all HTML pages and convert to PDF
-  // Preserve original XSL layout as designed for browser display
-  const combinedHtml = `
+  // 7130001.xml (標準報酬決定通知書) の処理
+  const xml7130001 = Object.keys(files).find((f) => /7130001\.xml$/i.test(f));
+  const xsl7130001 = Object.keys(files).find((f) => /7130001\.xsl$/i.test(f));
+
+  if (xml7130001 && xsl7130001) {
+    const xmlContent = files[xml7130001] as string;
+    const xslContent = files[xsl7130001] as string;
+    const persons = extractInsuredPersonsFrom7130001(xmlContent);
+
+    for (const person of persons) {
+      try {
+        const html = await applyXsltTransformation(
+          person.xmlContent,
+          optimizeXslForPdf(xslContent)
+        );
+        const wrappedHtml = wrapHtmlForPdf(html);
+        const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+
+        const filename = `7130001_${sanitizeFileName(person.name)}.pdf`;
+        pdfFiles.push({ filename, buffer: pdfBuffer });
+        console.log(`✅ Generated: ${filename}`);
+      } catch (error) {
+        console.error(`Failed to convert 7130001 for ${person.name}:`, error);
+      }
+    }
+  }
+
+  // 7200001.xml (70歳以上被用者) の処理
+  const xml7200001 = Object.keys(files).find((f) => /7200001\.xml$/i.test(f));
+  const xsl7200001 = Object.keys(files).find((f) => /7200001\.xsl$/i.test(f));
+
+  if (xml7200001 && xsl7200001) {
+    const xmlContent = files[xml7200001] as string;
+    const xslContent = files[xsl7200001] as string;
+    const persons = extractInsuredPersonsFrom7200001(xmlContent);
+
+    for (const person of persons) {
+      try {
+        const html = await applyXsltTransformation(
+          person.xmlContent,
+          optimizeXslForPdf(xslContent)
+        );
+        const wrappedHtml = wrapHtmlForPdf(html);
+        const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+
+        const filename = `7200001_${sanitizeFileName(person.name)}.pdf`;
+        pdfFiles.push({ filename, buffer: pdfBuffer });
+        console.log(`✅ Generated: ${filename}`);
+      } catch (error) {
+        console.error(`Failed to convert 7200001 for ${person.name}:`, error);
+      }
+    }
+  }
+
+  // henrei.xml (返戻票) の処理
+  const xmlHenrei = Object.keys(files).find((f) => /henrei\.xml$/i.test(f));
+  const xslHenrei = Object.keys(files).find((f) => /henrei\.xsl$/i.test(f));
+
+  if (xmlHenrei && xslHenrei) {
+    const xmlContent = files[xmlHenrei] as string;
+    const xslContent = files[xslHenrei] as string;
+    const persons = extractInsuredPersonsFromHenrei(xmlContent);
+
+    for (const person of persons) {
+      try {
+        const html = await applyXsltTransformation(
+          person.xmlContent,
+          optimizeXslForPdf(xslContent)
+        );
+        const wrappedHtml = wrapHtmlForPdf(html);
+        const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+
+        const filename = `henrei_${sanitizeFileName(person.name)}.pdf`;
+        pdfFiles.push({ filename, buffer: pdfBuffer });
+        console.log(`✅ Generated: ${filename}`);
+      } catch (error) {
+        console.error(`Failed to convert henrei for ${person.name}:`, error);
+      }
+    }
+  }
+
+  // 新しいZIPファイルを作成
+  const zip = new JSZip();
+
+  // 元のファイルを全て追加
+  for (const [filename, content] of Object.entries(files)) {
+    if (typeof content === "string") {
+      zip.file(filename, content);
+    } else {
+      zip.file(filename, content);
+    }
+  }
+
+  // 生成したPDFを追加
+  for (const pdfFile of pdfFiles) {
+    zip.file(pdfFile.filename, pdfFile.buffer);
+  }
+
+  // ZIPをバッファに変換
+  const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
+
+  console.log(`📦 Created ZIP with ${pdfFiles.length} PDFs + ${Object.keys(files).length} original files`);
+
+  return zipBuffer;
+}
+
+/**
+ * HTMLを1ページ用にラップ
+ */
+function wrapHtmlForPdf(html: string): string {
+  return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -138,29 +195,21 @@ export async function convertZipToPdf(
             size: A4;
             margin: 5mm 10mm;
         }
-        /* Page breaks between documents */
-        .page-break {
-            page-break-after: always;
-        }
-        /* Preserve original layout dimensions */
+        /* 1ページに収める - page-break-inside削除 */
         .document-container {
             margin: 0 auto;
-            page-break-inside: avoid;
         }
     </style>
 </head>
 <body>
-    ${htmlPages.map(html => `<div class="document-container">${html}</div>`).join('<div class="page-break"></div>')}
+    <div class="document-container">
+        ${html}
+    </div>
     <script>
-        // Signal that rendering is complete
         window.addEventListener('load', () => {
             window.scalingComplete = true;
         });
     </script>
 </body>
 </html>`;
-
-  const pdfBuffer = await generatePdfFromHtml(combinedHtml);
-
-  return pdfBuffer;
 }
