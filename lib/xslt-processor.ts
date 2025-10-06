@@ -12,6 +12,11 @@ export async function applyXsltTransformation(
 
   let browser;
   try {
+    // Set font config for Lambda
+    if (isProduction) {
+      process.env.FONTCONFIG_PATH = '/tmp';
+    }
+
     const execPath = isProduction ? await chromium_pkg.executablePath() : undefined;
     console.log("📦 XSLT Chromium executable path:", execPath);
 

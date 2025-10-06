@@ -13,7 +13,14 @@ export async function generatePdfFromHtml(
 
   let browser;
   try {
-    const execPath = isProduction ? await chromium_pkg.executablePath() : undefined;
+    // Set font config for Lambda
+    if (isProduction) {
+      process.env.FONTCONFIG_PATH = '/tmp';
+    }
+
+    const execPath = isProduction
+      ? await chromium_pkg.executablePath()
+      : undefined;
     console.log("📦 Chromium executable path:", execPath);
 
     browser = await chromium.launch({

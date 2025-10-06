@@ -20,6 +20,11 @@ export async function GET() {
     // Try to get executable path
     let execPath;
     try {
+      // Set font config for Lambda
+      if (isProduction) {
+        process.env.FONTCONFIG_PATH = '/tmp';
+      }
+
       execPath = isProduction ? await chromium_pkg.executablePath() : 'local';
       console.log('✅ Executable path obtained:', execPath);
     } catch (error) {
