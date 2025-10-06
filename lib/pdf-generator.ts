@@ -21,8 +21,19 @@ export async function generatePdfFromHtml(
 
     console.log("✨ Content rendering complete");
 
-    // Give it a moment to fully render
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Wait for scaling to complete
+    await page.waitForFunction(
+      () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (window as any).scalingComplete === true;
+      },
+      { timeout: 5000 }
+    ).catch(() => {
+      console.log("⚠️ Scaling timeout - proceeding without scaling");
+    });
+
+    // Give it a moment to fully render after scaling
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     // Generate PDF with optimized margins
     const pdfBuffer = await page.pdf({

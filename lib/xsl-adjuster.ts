@@ -129,19 +129,17 @@ export function addPreTextWrapping(xslContent: string): string {
 }
 
 /**
- * Main function to optimize XSL for A4 PDF output
+ * Main function to optimize XSL for PDF output
+ * Preserves original layout as designed for browser display
  */
 export function optimizeXslForPdf(xslContent: string): string {
   // Step 1: Fix HTML tags to be XML-compliant
   let optimized = fixHtmlTags(xslContent);
 
-  // Step 2: Adjust dimensions for A4
-  optimized = adjustXslForA4(optimized);
-
-  // Step 3: Add text wrapping for pre tags
+  // Step 2: Add text wrapping for pre tags
   optimized = addPreTextWrapping(optimized);
 
-  // Step 4: Enhance for better PDF rendering
+  // Step 3: Enhance for better PDF rendering
   optimized = optimized.replace(
     /<head>/i,
     `<head>

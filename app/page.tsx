@@ -37,8 +37,16 @@ export default function Home() {
       setProgress(70);
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "変換に失敗しました");
+        let errorMessage = "変換に失敗しました";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // JSON parse failed, try to get text
+          const errorText = await response.text();
+          errorMessage = errorText || `HTTPエラー: ${response.status}`;
+        }
+        throw new Error(errorMessage);
       }
 
       setProgress(90);

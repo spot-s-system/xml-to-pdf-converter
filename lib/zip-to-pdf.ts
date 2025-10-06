@@ -115,6 +115,7 @@ export async function convertZipToPdf(
   }
 
   // Combine all HTML pages and convert to PDF
+  // Preserve original XSL layout as designed for browser display
   const combinedHtml = `
 <!DOCTYPE html>
 <html>
@@ -137,33 +138,25 @@ export async function convertZipToPdf(
             size: A4;
             margin: 5mm 10mm;
         }
+        /* Page breaks between documents */
         .page-break {
             page-break-after: always;
         }
-        /* Text wrapping and overflow handling */
-        table, td, th, div, p, span {
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            word-break: break-word;
-        }
-        /* Prevent content overflow */
-        table {
-            max-width: 100%;
-            table-layout: auto !important;
-        }
-        td, th {
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        /* Center content */
-        body > * {
-            margin-left: auto;
-            margin-right: auto;
+        /* Preserve original layout dimensions */
+        .document-container {
+            margin: 0 auto;
+            page-break-inside: avoid;
         }
     </style>
 </head>
 <body>
-    ${htmlPages.join('<div class="page-break"></div>')}
+    ${htmlPages.map(html => `<div class="document-container">${html}</div>`).join('<div class="page-break"></div>')}
+    <script>
+        // Signal that rendering is complete
+        window.addEventListener('load', () => {
+            window.scalingComplete = true;
+        });
+    </script>
 </body>
 </html>`;
 
