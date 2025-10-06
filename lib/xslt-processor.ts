@@ -1,5 +1,5 @@
 import { chromium } from "playwright-core";
-import chromium_pkg from "@sparticuz/chromium";
+import chromium_pkg from "@sparticuz/chromium-min";
 
 export async function applyXsltTransformation(
   xmlContent: string,
