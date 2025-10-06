@@ -1,78 +1,107 @@
-import puppeteer from "puppeteer-core";
-import chromium_pkg from "@sparticuz/chromium";
-
-// Cache the executable path globally to avoid race conditions
-let cachedExecutablePath: string | undefined;
+import jsPDF from "jspdf";
+import { JSDOM } from "jsdom";
 
 export async function generatePdfFromHtml(
   htmlContent: string
 ): Promise<Buffer> {
   console.log("🚀 PDF generation started");
 
-  // Use different chromium based on environment
-  const isProduction = process.env.VERCEL || process.env.NODE_ENV === "production";
-
-  console.log("📍 Environment:", { isProduction, VERCEL: process.env.VERCEL });
-
-  let browser;
   try {
-    let execPath: string | undefined;
+    // Parse HTML using JSDOM
+    const dom = new JSDOM(htmlContent);
+    const document = dom.window.document;
 
-    if (isProduction) {
-      // Use cached path if available to avoid concurrent decompression
-      if (!cachedExecutablePath) {
-        console.log("📦 Getting executable path for first time");
-        cachedExecutablePath = await chromium_pkg.executablePath();
-        // Wait a bit to ensure file is ready
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
-      execPath = cachedExecutablePath;
-      console.log("📦 Using executable path:", execPath);
-    } else {
-      execPath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    // Create PDF
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
+
+    // Extract text content and basic layout
+    const bodyElement = document.querySelector("body");
+    if (!bodyElement) {
+      throw new Error("No body element found in HTML");
     }
 
-    browser = await puppeteer.launch({
-      args: isProduction ? chromium_pkg.args : [],
-      executablePath: execPath,
-      headless: true,
-    });
-    console.log("✅ Browser launched successfully");
-  } catch (error) {
-    console.error("❌ Browser launch failed:", error);
-    throw new Error(`Browser launch failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
+    let yPosition = 10;
+    const pageWidth = 210; // A4 width in mm
+    const pageHeight = 297; // A4 height in mm
+    const margin = 10;
+    const maxWidth = pageWidth - 2 * margin;
 
-  try {
-    const page = await browser.newPage();
+    // Process tables and text
+    const tables = bodyElement.querySelectorAll("table");
 
-    // Set viewport for consistent rendering
-    await page.setViewport({ width: 1200, height: 1600 });
+    for (const table of Array.from(tables)) {
+      const rows = table.querySelectorAll("tr");
 
-    console.log("🌐 Loading HTML content");
-    await page.setContent(htmlContent, { waitUntil: "networkidle0" });
+      for (const row of Array.from(rows)) {
+        const cells = row.querySelectorAll("td, th");
+        let xPosition = margin;
+        const cellWidth = maxWidth / cells.length;
 
-    console.log("✨ Content rendering complete");
+        for (const cell of Array.from(cells)) {
+          const text = cell.textContent?.trim() || "";
 
-    // Give it a moment to fully render
-    await new Promise(resolve => setTimeout(resolve, 1000));
+          // Check if we need a new page
+          if (yPosition > pageHeight - margin) {
+            pdf.addPage();
+            yPosition = margin;
+          }
 
-    // Generate PDF with optimized margins
-    const pdfBuffer = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: {
-        top: "5mm",
-        bottom: "5mm",
-        left: "10mm",
-        right: "10mm",
-      },
-    });
+          // Set font size based on element type
+          const fontSize = cell.tagName === "TH" ? 10 : 8;
+          pdf.setFontSize(fontSize);
+
+          // Draw cell text
+          const lines = pdf.splitTextToSize(text, cellWidth - 2);
+          pdf.text(lines, xPosition + 1, yPosition);
+
+          xPosition += cellWidth;
+        }
+
+        yPosition += 8; // Row height
+      }
+
+      yPosition += 5; // Space between tables
+    }
+
+    // Handle non-table content
+    const nonTableElements = Array.from(bodyElement.children).filter(
+      (el) => el.tagName !== "TABLE" && el.tagName !== "DIV" || el.className === "page-break"
+    );
+
+    for (const element of nonTableElements) {
+      if (element.className === "page-break") {
+        pdf.addPage();
+        yPosition = margin;
+        continue;
+      }
+
+      const text = element.textContent?.trim() || "";
+      if (text) {
+        if (yPosition > pageHeight - margin) {
+          pdf.addPage();
+          yPosition = margin;
+        }
+
+        pdf.setFontSize(10);
+        const lines = pdf.splitTextToSize(text, maxWidth);
+        pdf.text(lines, margin, yPosition);
+        yPosition += lines.length * 7;
+      }
+    }
 
     console.log("✅ PDF generated successfully");
 
-    return Buffer.from(pdfBuffer);
-  } finally {
-    await browser.close();
+    return Buffer.from(pdf.output("arraybuffer"));
+  } catch (error) {
+    console.error("❌ PDF generation failed:", error);
+    throw new Error(
+      `PDF generation failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
   }
 }

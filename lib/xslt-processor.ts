@@ -1,8 +1,4 @@
-import puppeteer from "puppeteer-core";
-import chromium_pkg from "@sparticuz/chromium";
-
-// Cache the executable path globally to avoid race conditions
-let cachedExecutablePath: string | undefined;
+import SaxonJS from "xslt3";
 
 export async function applyXsltTransformation(
   xmlContent: string,
@@ -10,122 +6,22 @@ export async function applyXsltTransformation(
 ): Promise<string> {
   console.log("🔄 XSLT transformation started");
 
-  // Use different chromium based on environment
-  const isProduction = process.env.VERCEL || process.env.NODE_ENV === "production";
-
-  let browser;
   try {
-    let execPath: string | undefined;
-
-    if (isProduction) {
-      // Use cached path if available to avoid concurrent decompression
-      if (!cachedExecutablePath) {
-        console.log("📦 XSLT Getting executable path for first time");
-        cachedExecutablePath = await chromium_pkg.executablePath();
-        // Wait a bit to ensure file is ready
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
-      execPath = cachedExecutablePath;
-      console.log("📦 XSLT Using executable path:", execPath);
-    } else {
-      execPath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-    }
-
-    browser = await puppeteer.launch({
-      args: isProduction ? chromium_pkg.args : [],
-      executablePath: execPath,
-      headless: true,
+    // Use SaxonJS to perform XSLT transformation
+    const result = await SaxonJS.transform({
+      stylesheetText: xslContent,
+      sourceText: xmlContent,
+      destination: "serialized",
     });
-    console.log("✅ XSLT Browser launched successfully");
+
+    console.log("✅ XSLT transformation completed");
+    return result.principalResult as string;
   } catch (error) {
-    console.error("❌ XSLT Browser launch failed:", error);
-    throw new Error(`XSLT Browser launch failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  try {
-    const page = await browser.newPage();
-
-    // Escape content for embedding in JavaScript
-    const escapeForJs = (str: string) =>
-      str.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$");
-
-    const transformHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-</head>
-<body>
-    <div id="result"></div>
-    <script>
-        const parser = new DOMParser();
-
-        try {
-            // Parse XML and XSL
-            const xmlDoc = parser.parseFromString(\`${escapeForJs(xmlContent)}\`, "text/xml");
-            const xslDoc = parser.parseFromString(\`${escapeForJs(xslContent)}\`, "text/xml");
-
-            // Check for parsing errors
-            const xmlError = xmlDoc.querySelector("parsererror");
-            const xslError = xslDoc.querySelector("parsererror");
-
-            if (xmlError) {
-                throw new Error("XML parsing error: " + xmlError.textContent);
-            }
-            if (xslError) {
-                throw new Error("XSL parsing error: " + xslError.textContent);
-            }
-
-            // Create XSLT processor
-            const xsltProcessor = new XSLTProcessor();
-            xsltProcessor.importStylesheet(xslDoc);
-
-            // Transform
-            const resultDoc = xsltProcessor.transformToFragment(xmlDoc, document);
-
-            // Add result to page
-            document.getElementById("result").appendChild(resultDoc);
-
-            // Mark transformation as complete
-            window.transformComplete = true;
-        } catch (error) {
-            window.transformError = error.message;
-            throw error;
-        }
-    </script>
-</body>
-</html>`;
-
-    await page.setContent(transformHtml, { waitUntil: "networkidle0" });
-
-    // Wait for transformation to complete
-    await page.waitForFunction(
-      () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const win = window as any;
-        return win.transformComplete || win.transformError;
-      },
-      { timeout: 10000 }
+    console.error("❌ XSLT transformation failed:", error);
+    throw new Error(
+      `XSLT transformation failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`
     );
-
-    // Check for errors
-    const error = await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (window as any).transformError;
-    });
-
-    if (error) {
-      throw new Error(`XSLT transformation failed: ${error}`);
-    }
-
-    // Get the transformed HTML
-    const transformedHtml = await page.evaluate(() => {
-      const resultDiv = document.getElementById("result");
-      return resultDiv ? resultDiv.innerHTML : "";
-    });
-
-    return transformedHtml;
-  } finally {
-    await browser.close();
   }
 }
