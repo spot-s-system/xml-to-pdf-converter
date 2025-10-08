@@ -119,6 +119,19 @@ export function addPreTextWrapping(xslContent: string): string {
       font-size: 12px !important;        /* Ensure consistent font size */
     }
 
+    /* Japanese text wrapping for 教示文 */
+    pre.kyouji {
+      white-space: pre-wrap !important;
+      word-wrap: break-word !important;
+      word-break: break-all !important;  /* Allow breaking anywhere in CJK text */
+      overflow-wrap: anywhere !important; /* More aggressive wrapping */
+      max-width: 600px !important;       /* Enforce maximum width for kyouji */
+      overflow: hidden !important;        /* Prevent overflow */
+      line-height: 1.3 !important;       /* Improve readability */
+      font-size: 10px !important;        /* Consistent with original font size */
+      letter-spacing: -0.3px !important; /* Slightly tighter spacing for better fit */
+    }
+
     /* General pre tag handling */
     pre {
       white-space: pre-wrap;
@@ -136,6 +149,14 @@ export function addPreTextWrapping(xslContent: string): string {
       max-width: 250px !important;
       word-break: break-all !important;
       overflow-wrap: anywhere !important;
+    }
+
+    /* Table cells containing kyouji content */
+    td.kyouji, td:has(pre.kyouji) {
+      max-width: 600px !important;
+      word-break: break-all !important;
+      overflow-wrap: anywhere !important;
+      padding: 5px !important;
     }
 
     /* Fallback for browsers not supporting :has() */
