@@ -35,6 +35,16 @@ export function adjustXslForA4(xslContent: string): string {
     return `height: ${newHeight}px`;
   });
 
+  // Pattern to match col element width attributes
+  // Matches: <col width="250px" /> or <col width="250px">
+  const colWidthPattern = /<col\s+([^>]*?)width="(\d+)px"([^>]*?)>/gi;
+
+  adjustedXsl = adjustedXsl.replace(colWidthPattern, (match, before, width, after) => {
+    const originalWidth = parseInt(width, 10);
+    const newWidth = Math.round(originalWidth * scaleFactor);
+    return `<col ${before}width="${newWidth}px"${after}>`;
+  });
+
   // Add responsive page styles
   const pageStyles = `
     @page {
@@ -113,10 +123,10 @@ export function addPreTextWrapping(xslContent: string): string {
       word-wrap: break-word !important;
       word-break: break-all !important;  /* Allow breaking anywhere in CJK text */
       overflow-wrap: anywhere !important; /* More aggressive wrapping */
-      max-width: 250px !important;       /* Enforce maximum width */
+      max-width: 310px !important;       /* 250px × 1.24 (scaled for A4) */
       overflow: hidden !important;        /* Prevent overflow */
-      line-height: 1.4 !important;       /* Improve readability */
-      font-size: 12px !important;        /* Ensure consistent font size */
+      line-height: 1.3 !important;       /* Improve readability */
+      font-size: 10px !important;        /* Appropriate font size */
     }
 
     /* Japanese text wrapping for 教示文 */
@@ -125,10 +135,11 @@ export function addPreTextWrapping(xslContent: string): string {
       word-wrap: break-word !important;
       word-break: break-all !important;  /* Allow breaking anywhere in CJK text */
       overflow-wrap: anywhere !important; /* More aggressive wrapping */
-      max-width: 600px !important;       /* Enforce maximum width for kyouji */
+      max-width: 710px !important;       /* 573px × 1.24 (scaled for A4) */
+      max-height: 188px !important;      /* 152px × 1.24 (scaled for A4) */
       overflow: hidden !important;        /* Prevent overflow */
-      line-height: 1.3 !important;       /* Improve readability */
-      font-size: 10px !important;        /* Consistent with original font size */
+      line-height: 1.15 !important;      /* Tighter line spacing */
+      font-size: 8px !important;         /* Smaller font to fit more text */
       letter-spacing: -0.3px !important; /* Slightly tighter spacing for better fit */
     }
 
@@ -146,17 +157,19 @@ export function addPreTextWrapping(xslContent: string): string {
 
     /* Table cells containing oshirase content */
     td:has(pre.oshirase), td > pre.oshirase {
-      max-width: 250px !important;
+      max-width: 310px !important;     /* 250px × 1.24 (scaled for A4) */
       word-break: break-all !important;
       overflow-wrap: anywhere !important;
     }
 
     /* Table cells containing kyouji content */
     td.kyouji, td:has(pre.kyouji) {
-      max-width: 600px !important;
+      max-width: 710px !important;     /* 573px × 1.24 (scaled for A4) */
+      max-height: 188px !important;    /* 152px × 1.24 (scaled for A4) */
       word-break: break-all !important;
       overflow-wrap: anywhere !important;
-      padding: 5px !important;
+      overflow: hidden !important;
+      padding: 3px !important;
     }
 
     /* Fallback for browsers not supporting :has() */
@@ -177,16 +190,19 @@ export function addPreTextWrapping(xslContent: string): string {
 
 /**
  * Main function to optimize XSL for PDF output
- * Preserves original layout as designed for browser display
+ * Scales to A4 size and preserves original layout proportions
  */
 export function optimizeXslForPdf(xslContent: string): string {
   // Step 1: Fix HTML tags to be XML-compliant
   let optimized = fixHtmlTags(xslContent);
 
-  // Step 2: Add text wrapping for pre tags
+  // Step 2: Apply A4 scaling to fit the page properly
+  optimized = adjustXslForA4(optimized);
+
+  // Step 3: Add text wrapping for pre tags
   optimized = addPreTextWrapping(optimized);
 
-  // Step 3: Normalize HTML tag case and enhance for PDF rendering
+  // Step 4: Normalize HTML tag case and enhance for PDF rendering
   // First convert all HTML tags to lowercase to avoid case mismatch issues
   optimized = optimized.replace(/<(\/?)HTML>/gi, '<$1html>');
   optimized = optimized.replace(/<(\/?)HEAD>/gi, '<$1head>');
