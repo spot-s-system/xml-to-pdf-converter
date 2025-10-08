@@ -105,17 +105,43 @@ export function fixHtmlTags(xslContent: string): string {
 export function addPreTextWrapping(xslContent: string): string {
   let adjusted = xslContent;
 
-  // Add CSS rule for pre.oshirase to enable text wrapping at 27 characters
+  // Add CSS rule for pre.oshirase to enable text wrapping with Japanese text support
   const preStyles = `
+    /* Japanese text wrapping for 機構からのお知らせ */
     pre.oshirase {
       white-space: pre-wrap !important;
       word-wrap: break-word !important;
-      overflow-wrap: break-word !important;
-      max-width: 100%;
+      word-break: break-all !important;  /* Allow breaking anywhere in CJK text */
+      overflow-wrap: anywhere !important; /* More aggressive wrapping */
+      max-width: 250px !important;       /* Enforce maximum width */
+      overflow: hidden !important;        /* Prevent overflow */
+      line-height: 1.4 !important;       /* Improve readability */
+      font-size: 12px !important;        /* Ensure consistent font size */
     }
+
+    /* General pre tag handling */
     pre {
       white-space: pre-wrap;
       word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+
+    /* Fixed table layout to respect width constraints */
+    table {
+      table-layout: fixed !important;
+    }
+
+    /* Table cells containing oshirase content */
+    td:has(pre.oshirase), td > pre.oshirase {
+      max-width: 250px !important;
+      word-break: break-all !important;
+      overflow-wrap: anywhere !important;
+    }
+
+    /* Fallback for browsers not supporting :has() */
+    td {
+      word-break: break-word;
+      overflow-wrap: break-word;
     }
   `;
 
