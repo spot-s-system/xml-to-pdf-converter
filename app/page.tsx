@@ -29,7 +29,7 @@ export default function Home() {
 
       setProgress(20);
 
-      const response = await fetch("/api/convert", {
+      const response = await fetch("/api/convert-bulk", {
         method: "POST",
         body: formData,
       });
@@ -56,7 +56,7 @@ export default function Home() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${zipFile.name.replace(".zip", "")}_converted.zip`;
+      a.download = `${zipFile.name.replace(".zip", "")}_変換結果.zip`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
