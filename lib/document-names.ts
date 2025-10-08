@@ -21,7 +21,7 @@ export function getDocumentName(documentType: string): string {
 /**
  * 被保険者名リストから「様」付きファイル名を生成
  * @param names 被保険者名のリスト
- * @returns "神山加津枝様" or "神山加津枝様他1名"
+ * @returns "山田太郎様" or "山田太郎様他1名"
  */
 export function formatInsuredPersonNames(names: string[]): string {
   if (names.length === 0) {
