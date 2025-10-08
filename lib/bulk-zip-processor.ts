@@ -91,9 +91,42 @@ export async function analyzeFolderStructure(
   const folders: FolderStructure[] = [];
   const entries = await fs.readdir(extractPath, { withFileTypes: true });
 
-  for (const entry of entries) {
-    // 数字4桁で始まるフォルダのみ処理
-    if (entry.isDirectory() && /^\d{4}_/.test(entry.name)) {
+  // 1. ルートレベルのXML/XSLファイルをチェック
+  const rootFiles = await fs.readdir(extractPath);
+  const rootXmlXslFiles = rootFiles.filter((file) => {
+    const ext = path.extname(file).toLowerCase();
+    return ext === '.xml' || ext === '.xsl';
+  });
+
+  // ルートにXML/XSLファイルがある場合、仮想的な"root"フォルダとして処理
+  if (rootXmlXslFiles.length > 0) {
+    const documents = await detectDocumentPairs(extractPath, rootFiles);
+
+    if (documents.length > 0) {
+      const otherFiles = rootFiles.filter((file) => {
+        const ext = path.extname(file).toLowerCase();
+        // XML/XSLファイルとディレクトリを除外
+        return ext !== '.xml' && ext !== '.xsl' && !entries.some(e => e.isDirectory() && e.name === file);
+      });
+
+      folders.push({
+        folderName: 'root',
+        folderPath: extractPath,
+        documents,
+        xmlXslFiles: rootXmlXslFiles,
+        otherFiles,
+      });
+
+      logIndent('Found XML/XSL files in root directory', 1, 'ℹ️');
+    }
+  }
+
+  // 2. ディレクトリの処理
+  const directories = entries.filter(e => e.isDirectory());
+
+  // 数字4桁で始まるフォルダを処理（既存の処理）
+  for (const entry of directories) {
+    if (/^\d{4}_/.test(entry.name)) {
       const folderPath = path.join(extractPath, entry.name);
       const files = await fs.readdir(folderPath);
 
@@ -123,6 +156,39 @@ export async function analyzeFolderStructure(
         xmlXslFiles,
         otherFiles,
       });
+    }
+  }
+
+  // 3. 単一フォルダの場合の処理（数字で始まらないフォルダも対応）
+  // ルートにファイルがなく、番号付きフォルダも見つからず、フォルダが1つだけの場合
+  if (folders.length === 0 && directories.length === 1) {
+    const singleDir = directories[0];
+    const folderPath = path.join(extractPath, singleDir.name);
+    const files = await fs.readdir(folderPath);
+
+    // XML/XSLペアを検出
+    const documents = await detectDocumentPairs(folderPath, files);
+
+    if (documents.length > 0) {
+      const xmlXslFiles = files.filter((file) => {
+        const ext = path.extname(file).toLowerCase();
+        return ext === '.xml' || ext === '.xsl';
+      });
+
+      const otherFiles = files.filter((file) => {
+        const ext = path.extname(file).toLowerCase();
+        return ext !== '.xml' && ext !== '.xsl';
+      });
+
+      folders.push({
+        folderName: singleDir.name,
+        folderPath,
+        documents,
+        xmlXslFiles,
+        otherFiles,
+      });
+
+      logIndent(`Processing single folder: ${truncateFileName(singleDir.name, 50)}`, 1, 'ℹ️');
     }
   }
 
@@ -419,21 +485,27 @@ export async function createResultZip(
   const zip = new JSZip();
 
   for (const folder of processedFolders) {
-    const folderPath = folder.folderName;
+    // "root"フォルダの場合は特別扱い（ルートにファイルを配置）
+    const isRootFolder = folder.folderName === 'root';
+    const folderPrefix = isRootFolder ? '' : `${folder.folderName}/`;
 
     if (folder.success && folder.pdfs) {
       // PDFを追加
       for (const pdf of folder.pdfs) {
-        zip.file(`${folderPath}/${pdf.name}`, pdf.buffer);
+        zip.file(`${folderPrefix}${pdf.name}`, pdf.buffer);
       }
 
       // 元のXML/XSLファイルをコピー
       if (folder.xmlXslFiles) {
         for (const fileName of folder.xmlXslFiles) {
-          const filePath = path.join(extractPath, folderPath, fileName);
+          // rootフォルダの場合は extractPath 直下、それ以外は subfolder から読み込む
+          const sourcePath = isRootFolder
+            ? path.join(extractPath, fileName)
+            : path.join(extractPath, folder.folderName, fileName);
+
           try {
-            const fileBuffer = await fs.readFile(filePath);
-            zip.file(`${folderPath}/${fileName}`, fileBuffer);
+            const fileBuffer = await fs.readFile(sourcePath);
+            zip.file(`${folderPrefix}${fileName}`, fileBuffer);
           } catch (error) {
             console.error(`Failed to copy XML/XSL file ${fileName}:`, error);
           }
@@ -443,10 +515,14 @@ export async function createResultZip(
       // その他のファイルをコピー
       if (folder.otherFiles) {
         for (const fileName of folder.otherFiles) {
-          const filePath = path.join(extractPath, folderPath, fileName);
+          // rootフォルダの場合は extractPath 直下、それ以外は subfolder から読み込む
+          const sourcePath = isRootFolder
+            ? path.join(extractPath, fileName)
+            : path.join(extractPath, folder.folderName, fileName);
+
           try {
-            const fileBuffer = await fs.readFile(filePath);
-            zip.file(`${folderPath}/${fileName}`, fileBuffer);
+            const fileBuffer = await fs.readFile(sourcePath);
+            zip.file(`${folderPrefix}${fileName}`, fileBuffer);
           } catch (error) {
             console.error(`Failed to copy file ${fileName}:`, error);
           }
@@ -456,7 +532,7 @@ export async function createResultZip(
       // エラーが発生した場合、エラーファイルを配置
       const errorMessage = `PDFの変換中にエラーが発生しました\n\nフォルダ: ${folder.folderName}\nエラー内容: ${folder.error}\n\n対処方法:\n1. 元のZIPファイルの内容を確認してください\n2. 不足しているファイルを追加して再度アップロードしてください`;
 
-      zip.file(`${folderPath}/変換エラー.txt`, errorMessage);
+      zip.file(`${folderPrefix}変換エラー.txt`, errorMessage);
     }
   }
 
