@@ -12,6 +12,7 @@ import { extractNamingInfo } from './xml-info-extractor';
 import { generateSafePdfFileName, generateIndividualPdfFileName } from './pdf-naming';
 import { applyXsltTransformation } from './xslt-processor';
 import { generatePdfFromHtml } from './pdf-generator';
+import { optimizeXslForPdf } from './xsl-adjuster';
 import {
   log,
   logIndent,
@@ -347,7 +348,7 @@ async function processFolderDocuments(
           );
 
           // XSLT変換
-          const html = await applyXsltTransformation(individualXml, xslContent);
+          const html = await applyXsltTransformation(individualXml, optimizeXslForPdf(xslContent));
 
           // PDF生成
           const pdfBuffer = await generatePdfFromHtml(html);
@@ -374,7 +375,7 @@ async function processFolderDocuments(
           procedureInfo.type,
           namingInfo
         );
-        const html = await applyXsltTransformation(xmlContent, xslContent);
+        const html = await applyXsltTransformation(xmlContent, optimizeXslForPdf(xslContent));
         const pdfBuffer = await generatePdfFromHtml(html);
         pdfs.push({
           name: pdfFileName,
@@ -391,7 +392,7 @@ async function processFolderDocuments(
       );
 
       // XSLT変換
-      const html = await applyXsltTransformation(xmlContent, xslContent);
+      const html = await applyXsltTransformation(xmlContent, optimizeXslForPdf(xslContent));
 
       // PDF生成
       const pdfBuffer = await generatePdfFromHtml(html);
