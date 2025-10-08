@@ -12,6 +12,15 @@ import { extractNamingInfo } from './xml-info-extractor';
 import { generateSafePdfFileName, generateIndividualPdfFileName } from './pdf-naming';
 import { applyXsltTransformation } from './xslt-processor';
 import { generatePdfFromHtml } from './pdf-generator';
+import {
+  log,
+  logIndent,
+  logError,
+  logWarning,
+  formatDuration,
+  createProgressBar,
+  truncateFileName,
+} from './logger';
 
 export interface DocumentPair {
   type: 'kagami' | 'notification';
@@ -206,10 +215,21 @@ export async function processFolders(
   folders: FolderStructure[]
 ): Promise<ProcessedFolder[]> {
   const results: ProcessedFolder[] = [];
+  const totalFolders = folders.length;
 
-  for (const folder of folders) {
+  for (let i = 0; i < folders.length; i++) {
+    const folder = folders[i];
+    const folderNumber = i + 1;
+    const progress = createProgressBar(folderNumber - 1, totalFolders);
+
+    log(`${progress} Processing folder ${folderNumber}/${totalFolders}`, '📁');
+    logIndent(truncateFileName(folder.folderName, 60), 1);
+
+    const folderStartTime = Date.now();
+
     try {
       const pdfs = await processFolderDocuments(folder);
+      const duration = formatDuration(Date.now() - folderStartTime);
 
       results.push({
         folderName: folder.folderName,
@@ -218,8 +238,11 @@ export async function processFolders(
         xmlXslFiles: folder.xmlXslFiles,
         otherFiles: folder.otherFiles,
       });
+
+      logIndent(`✅ Completed: ${pdfs.length} PDFs generated (${duration})`, 1);
     } catch (error) {
-      console.error(`Error processing folder ${folder.folderName}:`, error);
+      const duration = formatDuration(Date.now() - folderStartTime);
+      logError(`Failed after ${duration}`, error);
 
       results.push({
         folderName: folder.folderName,
@@ -279,7 +302,11 @@ async function processFolderDocuments(
     kagazmiXmlContent = await fs.readFile(kagazmiDoc.xmlPath, 'utf-8');
   }
 
-  for (const doc of folder.documents) {
+  for (let docIndex = 0; docIndex < folder.documents.length; docIndex++) {
+    const doc = folder.documents[docIndex];
+
+    logIndent(`📄 Document ${docIndex + 1}/${folder.documents.length}: ${doc.xmlFileName}`, 2);
+
     // XMLとXSLを読み込み
     const xmlContent = await fs.readFile(doc.xmlPath, 'utf-8');
     const xslContent = await fs.readFile(doc.xslPath, 'utf-8');
@@ -301,9 +328,7 @@ async function processFolderDocuments(
       namingInfo.allInsurers.length > 1
     ) {
       // 個別PDF生成（取得・喪失で複数人の場合）
-      console.log(
-        `Generating individual PDFs for ${namingInfo.allInsurers.length} insurers`
-      );
+      logIndent(`Generating ${namingInfo.allInsurers.length} individual PDFs...`, 3);
 
       // 各被保険者のブロックを抽出
       const insurerBlocks = xmlContent.match(
@@ -314,6 +339,8 @@ async function processFolderDocuments(
         // 各被保険者ごとにPDFを生成
         for (let i = 0; i < namingInfo.allInsurers.length; i++) {
           const insurer = namingInfo.allInsurers[i];
+          logIndent(`- Processing ${insurer.name}様...`, 4);
+
           const individualXml = generateIndividualInsurerXml(
             xmlContent,
             insurerBlocks[i]
@@ -336,12 +363,13 @@ async function processFolderDocuments(
             name: pdfFileName,
             buffer: pdfBuffer,
           });
+
+          logIndent(`✓ ${truncateFileName(pdfFileName, 50)}`, 4);
         }
       } else {
         // フォールバック：通常の連結PDF生成
-        console.warn(
-          'Failed to extract individual insurer blocks, generating combined PDF'
-        );
+        logWarning('Failed to extract individual insurer blocks, generating combined PDF');
+
         const pdfFileName = generateSafePdfFileName(
           procedureInfo.type,
           namingInfo
@@ -352,6 +380,8 @@ async function processFolderDocuments(
           name: pdfFileName,
           buffer: pdfBuffer,
         });
+
+        logIndent(`→ ${truncateFileName(pdfFileName, 50)} ✓`, 3);
       }
     } else {
       // 連結PDF生成（月額変更、算定基礎届、賞与、その他、または単独の場合）
@@ -370,6 +400,8 @@ async function processFolderDocuments(
         name: pdfFileName,
         buffer: pdfBuffer,
       });
+
+      logIndent(`→ ${truncateFileName(pdfFileName, 50)} ✓`, 3);
     }
   }
 

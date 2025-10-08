@@ -11,6 +11,14 @@ import {
   createResultZip,
   cleanupTempDirectory,
 } from '@/lib/bulk-zip-processor';
+import {
+  log,
+  logIndent,
+  logStart,
+  logSuccess,
+  formatDuration,
+  truncateFileName,
+} from '@/lib/logger';
 
 export const maxDuration = 300; // 5分（Vercel Pro）
 
@@ -49,21 +57,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`Processing bulk ZIP file: ${file.name} (${file.size} bytes)`);
+    const startTime = Date.now();
+    logStart(`Processing: ${truncateFileName(file.name)} (${(file.size / 1024 / 1024).toFixed(2)}MB)`);
 
     // ファイルをBufferに変換
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
     // Step 1: ZIPを解凍
-    console.log('Extracting ZIP file...');
+    log('Extracting ZIP file...', '📦');
+    const extractStartTime = Date.now();
     tempPath = await extractZipFile(buffer);
-    console.log(`Extracted to: ${tempPath}`);
+    logIndent(`Extracted in ${formatDuration(Date.now() - extractStartTime)}`, 1, '✓');
 
     // Step 2: フォルダ構造を分析
-    console.log('Analyzing folder structure...');
+    log('Analyzing folder structure...', '🔍');
+    const analyzeStartTime = Date.now();
     const folders = await analyzeFolderStructure(tempPath);
-    console.log(`Found ${folders.length} folders`);
+    logIndent(`Found ${folders.length} folders in ${formatDuration(Date.now() - analyzeStartTime)}`, 1, '✓');
 
     if (folders.length === 0) {
       return NextResponse.json(
@@ -76,42 +87,61 @@ export async function POST(request: NextRequest) {
     }
 
     // フォルダ情報をログ出力
+    log('Folder contents:', '📁');
     folders.forEach((folder) => {
-      console.log(
-        `  - ${folder.folderName}: ${folder.documents.length} documents, ${folder.otherFiles.length} other files`
+      const folderName = truncateFileName(folder.folderName, 60);
+      const docIcon = folder.documents.length > 0 ? '📄' : '📭';
+      const otherIcon = folder.otherFiles.length > 0 ? '📎' : '';
+      logIndent(
+        `${folderName}: ${docIcon} ${folder.documents.length} docs ${otherIcon} ${folder.otherFiles.length > 0 ? `${folder.otherFiles.length} files` : ''}`,
+        1
       );
     });
 
     // Step 3: 各フォルダのドキュメントをPDF化
-    console.log('Converting documents to PDFs...');
+    log('Converting documents to PDFs...', '🔄');
     const processedFolders = await processFolders(folders);
 
     // 結果をサマリー
     const successCount = processedFolders.filter((f) => f.success).length;
     const errorCount = processedFolders.filter((f) => !f.success).length;
+    const totalTime = Date.now() - startTime;
 
-    console.log(`Conversion complete: ${successCount} succeeded, ${errorCount} failed`);
+    log(`Conversion complete in ${formatDuration(totalTime)}`, '🏁');
+    logIndent(`Success: ${successCount}/${folders.length} folders`, 1, '✅');
+    if (errorCount > 0) {
+      logIndent(`Failed: ${errorCount} folders`, 1, '❌');
+    }
 
+    // 詳細結果
+    log('Results:', '📊');
     processedFolders.forEach((folder) => {
       if (folder.success) {
-        console.log(
-          `  ✓ ${folder.folderName}: ${folder.pdfs?.length || 0} PDFs generated`
+        logIndent(
+          `✓ ${truncateFileName(folder.folderName, 50)}: ${folder.pdfs?.length || 0} PDFs`,
+          1
         );
       } else {
-        console.log(`  ✗ ${folder.folderName}: ${folder.error}`);
+        logIndent(
+          `✗ ${truncateFileName(folder.folderName, 50)}: ${folder.error}`,
+          1
+        );
       }
     });
 
     // Step 4: 結果をZIPにまとめる
-    console.log('Creating result ZIP...');
+    log('Creating result ZIP...', '🗜️');
+    const zipStartTime = Date.now();
     const resultZip = await createResultZip(processedFolders, tempPath);
-    console.log(`Result ZIP created: ${resultZip.length} bytes`);
+    logIndent(`ZIP created: ${(resultZip.length / 1024 / 1024).toFixed(2)}MB in ${formatDuration(Date.now() - zipStartTime)}`, 1, '✓');
 
     // Step 5: 一時ディレクトリをクリーンアップ
     if (tempPath) {
+      log('Cleaning up temporary files...', '🧹');
       await cleanupTempDirectory(tempPath);
-      console.log('Temp directory cleaned up');
     }
+
+    logSuccess(`All processing complete! Total time: ${formatDuration(totalTime)}`);
 
     // 結果を返す
     const fileName = file.name.replace('.zip', '_変換結果.zip');
