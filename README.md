@@ -17,6 +17,8 @@
 - ✅ 日本語フォント完全対応
 - ✅ A4サイズ最適化
 - ✅ ブラウザプールによる高速化（2回目以降0.6秒）
+- ✅ **リアルタイムログ表示（Server-Sent Eventsによるストリーミング）**
+- ✅ **ログのコピー機能（クリップボードへの一括コピー）**
 
 ### 対応ドキュメント形式
 
@@ -76,21 +78,25 @@ docker run -p 3000:3000 xml-to-pdf-converter
 ```
 .
 ├── app/
-│   ├── api/convert/route.ts      # ZIP→PDF変換APIエンドポイント
-│   ├── api/test-chromium/route.ts # Chromiumテストエンドポイント
-│   ├── page.tsx                   # メインUIページ
-│   └── layout.tsx                 # アプリケーションレイアウト
+│   ├── api/convert/route.ts           # 個別ZIP→PDF変換APIエンドポイント
+│   ├── api/convert-bulk/route.ts      # 一括変換APIエンドポイント
+│   ├── api/convert-bulk-stream/route.ts # リアルタイムログストリーミングAPI
+│   ├── api/test-chromium/route.ts     # Chromiumテストエンドポイント
+│   ├── page.tsx                       # メインUIページ（リアルタイムログ対応）
+│   └── layout.tsx                     # アプリケーションレイアウト
 ├── lib/
-│   ├── zip-to-pdf.ts             # ZIP処理とドキュメント構成
-│   ├── xslt-processor.ts         # XSLT変換処理
-│   ├── xsl-adjuster.ts           # XSLスタイルシートA4最適化
-│   ├── pdf-generator.ts          # Puppeteer PDF生成
-│   └── utils.ts                  # ユーティリティ関数
+│   ├── zip-to-pdf.ts                 # ZIP処理とドキュメント構成
+│   ├── bulk-zip-processor.ts         # 一括処理・ネストZIP対応
+│   ├── xslt-processor.ts             # XSLT変換処理
+│   ├── xsl-adjuster.ts               # XSLスタイルシートA4最適化
+│   ├── pdf-generator.ts              # Puppeteer PDF生成
+│   ├── logger.ts                     # リアルタイムログ管理
+│   └── utils.ts                      # ユーティリティ関数
 ├── components/
-│   ├── file-dropzone.tsx         # ファイルアップロードUI
-│   └── ui/                       # shadcn/ui コンポーネント
-├── Dockerfile                     # 本番環境コンテナ定義
-└── render.yaml                    # Renderデプロイ設定
+│   ├── file-dropzone.tsx             # ファイルアップロードUI
+│   └── ui/                           # shadcn/ui コンポーネント
+├── Dockerfile                         # 本番環境コンテナ定義
+└── render.yaml                        # Renderデプロイ設定
 ```
 
 ## 技術スタック
@@ -142,8 +148,21 @@ docker run -p 3000:3000 \
 
 1. アプリケーションを開く
 2. 公文書ZIPファイルをドラッグ&ドロップ、または選択
-3. 「PDFに変換」ボタンをクリック
-4. 変換されたZIPファイル（元ファイル + 生成PDF）が自動ダウンロードされます
+3. 「一括変換」ボタンをクリック
+4. **リアルタイムで処理状況がログに表示されます**
+5. 変換されたZIPファイル（元ファイル + 生成PDF）が自動ダウンロードされます
+
+### 新機能
+
+#### リアルタイムログ表示
+- 処理の進捗が即座に画面に表示
+- 各フォルダの処理状況を詳細に確認可能
+- ネストされたZIPの展開も可視化
+
+#### ログのコピー機能
+- ログエリア右上の「コピー」ボタンをクリック
+- 全ログがクリップボードにコピーされる
+- エラー発生時のデバッグや報告に便利
 
 ### 出力形式
 
