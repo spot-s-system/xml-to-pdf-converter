@@ -83,7 +83,7 @@ export async function extractZipFile(
 }
 
 /**
- * フォルダ構造を分析
+ * フォルダ構造を分析（ネストされたZIPも処理）
  */
 export async function analyzeFolderStructure(
   extractPath: string
@@ -130,14 +130,72 @@ export async function analyzeFolderStructure(
       const folderPath = path.join(extractPath, entry.name);
       const files = await fs.readdir(folderPath);
 
-      // XML/XSLペアを検出
-      const documents = await detectDocumentPairs(folderPath, files);
+      // ネストされたZIPファイルを検出して展開
+      const nestedZips = files.filter((file) =>
+        path.extname(file).toLowerCase() === '.zip'
+      );
 
-      // 元のXML/XSLファイルをリストアップ
+      const extractedXmlXslFiles: string[] = [];
+      const extractedDocuments: DocumentPair[] = [];
+
+      if (nestedZips.length > 0) {
+        logIndent(`Found ${nestedZips.length} nested ZIP(s) in ${truncateFileName(entry.name, 40)}`, 2, '📦');
+
+        for (const nestedZipFile of nestedZips) {
+          const nestedZipPath = path.join(folderPath, nestedZipFile);
+
+          try {
+            // ネストされたZIPを読み込んで展開
+            const nestedZipBuffer = await fs.readFile(nestedZipPath);
+            const nestedZip = await JSZip.loadAsync(nestedZipBuffer);
+
+            // XML/XSLファイルを一時的に展開
+            const tempNestedPath = await fs.mkdtemp(path.join(tmpdir(), 'nested-'));
+            const nestedFiles: string[] = [];
+
+            for (const [relativePath, zipEntry] of Object.entries(nestedZip.files)) {
+              if (!zipEntry.dir) {
+                const ext = path.extname(relativePath).toLowerCase();
+                if (ext === '.xml' || ext === '.xsl') {
+                  const content = await zipEntry.async('nodebuffer');
+                  const targetPath = path.join(tempNestedPath, path.basename(relativePath));
+                  await fs.writeFile(targetPath, content);
+                  nestedFiles.push(path.basename(relativePath));
+                  extractedXmlXslFiles.push(path.basename(relativePath));
+                }
+              }
+            }
+
+            // ネストされたZIP内のドキュメントペアを検出
+            const nestedDocs = await detectDocumentPairs(tempNestedPath, nestedFiles);
+
+            // パスを修正（実際のフォルダパスを使用）
+            for (const doc of nestedDocs) {
+              doc.xmlPath = path.join(tempNestedPath, path.basename(doc.xmlPath));
+              doc.xslPath = path.join(tempNestedPath, path.basename(doc.xslPath));
+            }
+
+            extractedDocuments.push(...nestedDocs);
+
+            logIndent(`Extracted ${nestedFiles.length} XML/XSL files from ${truncateFileName(nestedZipFile, 30)}`, 3, '✓');
+          } catch (error) {
+            logIndent(`Failed to process nested ZIP: ${nestedZipFile}`, 3, '❌');
+            console.error(error);
+          }
+        }
+      }
+
+      // 通常のXML/XSLペアを検出
+      const normalDocuments = await detectDocumentPairs(folderPath, files);
+
+      // ネストされたZIPから抽出したドキュメントと通常のドキュメントを結合
+      const allDocuments = [...normalDocuments, ...extractedDocuments];
+
+      // 元のXML/XSLファイルをリストアップ（ネストZIPから抽出したものを含む）
       const xmlXslFiles = files.filter((file) => {
         const ext = path.extname(file).toLowerCase();
         return ext === '.xml' || ext === '.xsl';
-      });
+      }).concat(extractedXmlXslFiles);
 
       // その他のファイル（PDF、TXT、CSV等）をリストアップ
       const otherFiles = files.filter((file) => {
@@ -152,7 +210,7 @@ export async function analyzeFolderStructure(
       folders.push({
         folderName: entry.name,
         folderPath,
-        documents,
+        documents: allDocuments,
         xmlXslFiles,
         otherFiles,
       });
@@ -166,14 +224,72 @@ export async function analyzeFolderStructure(
     const folderPath = path.join(extractPath, singleDir.name);
     const files = await fs.readdir(folderPath);
 
-    // XML/XSLペアを検出
-    const documents = await detectDocumentPairs(folderPath, files);
+    // ネストされたZIPファイルを検出して展開
+    const nestedZips = files.filter((file) =>
+      path.extname(file).toLowerCase() === '.zip'
+    );
 
-    if (documents.length > 0) {
+    const extractedXmlXslFiles: string[] = [];
+    const extractedDocuments: DocumentPair[] = [];
+
+    if (nestedZips.length > 0) {
+      logIndent(`Found ${nestedZips.length} nested ZIP(s) in single folder`, 2, '📦');
+
+      for (const nestedZipFile of nestedZips) {
+        const nestedZipPath = path.join(folderPath, nestedZipFile);
+
+        try {
+          // ネストされたZIPを読み込んで展開
+          const nestedZipBuffer = await fs.readFile(nestedZipPath);
+          const nestedZip = await JSZip.loadAsync(nestedZipBuffer);
+
+          // XML/XSLファイルを一時的に展開
+          const tempNestedPath = await fs.mkdtemp(path.join(tmpdir(), 'nested-'));
+          const nestedFiles: string[] = [];
+
+          for (const [relativePath, zipEntry] of Object.entries(nestedZip.files)) {
+            if (!zipEntry.dir) {
+              const ext = path.extname(relativePath).toLowerCase();
+              if (ext === '.xml' || ext === '.xsl') {
+                const content = await zipEntry.async('nodebuffer');
+                const targetPath = path.join(tempNestedPath, path.basename(relativePath));
+                await fs.writeFile(targetPath, content);
+                nestedFiles.push(path.basename(relativePath));
+                extractedXmlXslFiles.push(path.basename(relativePath));
+              }
+            }
+          }
+
+          // ネストされたZIP内のドキュメントペアを検出
+          const nestedDocs = await detectDocumentPairs(tempNestedPath, nestedFiles);
+
+          // パスを修正（実際のフォルダパスを使用）
+          for (const doc of nestedDocs) {
+            doc.xmlPath = path.join(tempNestedPath, path.basename(doc.xmlPath));
+            doc.xslPath = path.join(tempNestedPath, path.basename(doc.xslPath));
+          }
+
+          extractedDocuments.push(...nestedDocs);
+
+          logIndent(`Extracted ${nestedFiles.length} XML/XSL files from ${truncateFileName(nestedZipFile, 30)}`, 3, '✓');
+        } catch (error) {
+          logIndent(`Failed to process nested ZIP: ${nestedZipFile}`, 3, '❌');
+          console.error(error);
+        }
+      }
+    }
+
+    // 通常のXML/XSLペアを検出
+    const normalDocuments = await detectDocumentPairs(folderPath, files);
+
+    // ネストされたZIPから抽出したドキュメントと通常のドキュメントを結合
+    const allDocuments = [...normalDocuments, ...extractedDocuments];
+
+    if (allDocuments.length > 0) {
       const xmlXslFiles = files.filter((file) => {
         const ext = path.extname(file).toLowerCase();
         return ext === '.xml' || ext === '.xsl';
-      });
+      }).concat(extractedXmlXslFiles);
 
       const otherFiles = files.filter((file) => {
         const ext = path.extname(file).toLowerCase();
@@ -183,7 +299,7 @@ export async function analyzeFolderStructure(
       folders.push({
         folderName: singleDir.name,
         folderPath,
-        documents,
+        documents: allDocuments,
         xmlXslFiles,
         otherFiles,
       });
@@ -559,6 +675,20 @@ export async function createResultZip(
 export async function cleanupTempDirectory(tempPath: string): Promise<void> {
   try {
     await fs.rm(tempPath, { recursive: true, force: true });
+
+    // ネストされたZIP用の一時ディレクトリもクリーンアップ
+    const tmpDir = tmpdir();
+    const tempDirs = await fs.readdir(tmpDir);
+    const nestedTempDirs = tempDirs.filter(dir => dir.startsWith('nested-'));
+
+    for (const dir of nestedTempDirs) {
+      const dirPath = path.join(tmpDir, dir);
+      try {
+        await fs.rm(dirPath, { recursive: true, force: true });
+      } catch {
+        // エラーは無視（既に削除済みの可能性）
+      }
+    }
   } catch (error) {
     console.error(`Failed to cleanup temp directory ${tempPath}:`, error);
   }

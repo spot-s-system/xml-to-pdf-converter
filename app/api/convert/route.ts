@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
 
     // Extract all files including nested ZIPs
     const files: { [key: string]: string | Buffer } = {};
+    const logs: string[] = [];
 
     for (const [filename, zipEntry] of Object.entries(zip.files)) {
       if (zipEntry.dir) continue;
@@ -57,7 +58,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Convert XML files to individual PDFs and create ZIP
-    const zipBuffer = await convertZipToPdfZip(files);
+    const zipBuffer = await convertZipToPdfZip(files, (message) => {
+      logs.push(message);
+    });
 
     // Create safe filename (encode Japanese characters)
     const originalFilename = file.name.replace(".zip", "_converted.zip");
@@ -68,6 +71,7 @@ export async function POST(request: NextRequest) {
       headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename*=UTF-8''${encodedFilename}`,
+        "X-Conversion-Logs": encodeURIComponent(JSON.stringify(logs)),
       },
     });
   } catch (error) {

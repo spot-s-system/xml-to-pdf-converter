@@ -193,21 +193,33 @@ export function addPreTextWrapping(xslContent: string): string {
  * Scales to A4 size and preserves original layout proportions
  */
 export function optimizeXslForPdf(xslContent: string): string {
-  // Step 1: Fix HTML tags to be XML-compliant
-  let optimized = fixHtmlTags(xslContent);
-
-  // Step 2: Apply A4 scaling to fit the page properly
-  optimized = adjustXslForA4(optimized);
-
-  // Step 3: Add text wrapping for pre tags
-  optimized = addPreTextWrapping(optimized);
-
-  // Step 4: Normalize HTML tag case and enhance for PDF rendering
-  // First convert all HTML tags to lowercase to avoid case mismatch issues
+  // Step 1: Normalize HTML tag case FIRST to avoid case mismatch issues
+  let optimized = xslContent;
   optimized = optimized.replace(/<(\/?)HTML>/gi, '<$1html>');
   optimized = optimized.replace(/<(\/?)HEAD>/gi, '<$1head>');
   optimized = optimized.replace(/<(\/?)BODY>/gi, '<$1body>');
   optimized = optimized.replace(/<(\/?)TITLE>/gi, '<$1title>');
+  optimized = optimized.replace(/<(\/?)STYLE>/gi, '<$1style>');
+  optimized = optimized.replace(/<(\/?)SCRIPT>/gi, '<$1script>');
+  optimized = optimized.replace(/<(\/?)DIV>/gi, '<$1div>');
+  optimized = optimized.replace(/<(\/?)TABLE>/gi, '<$1table>');
+  optimized = optimized.replace(/<(\/?)TR>/gi, '<$1tr>');
+  optimized = optimized.replace(/<(\/?)TD>/gi, '<$1td>');
+  optimized = optimized.replace(/<(\/?)TH>/gi, '<$1th>');
+  optimized = optimized.replace(/<(\/?)TBODY>/gi, '<$1tbody>');
+  optimized = optimized.replace(/<(\/?)THEAD>/gi, '<$1thead>');
+  optimized = optimized.replace(/<(\/?)SPAN>/gi, '<$1span>');
+  optimized = optimized.replace(/<(\/?)PRE>/gi, '<$1pre>');
+  optimized = optimized.replace(/<(\/?)FORM>/gi, '<$1form>');
+
+  // Step 2: Fix HTML tags to be XML-compliant
+  optimized = fixHtmlTags(optimized);
+
+  // Step 3: Apply A4 scaling to fit the page properly
+  optimized = adjustXslForA4(optimized);
+
+  // Step 4: Add text wrapping for pre tags
+  optimized = addPreTextWrapping(optimized);
 
   // Now add meta tags after <head>
   optimized = optimized.replace(

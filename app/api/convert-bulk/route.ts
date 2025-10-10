@@ -18,6 +18,8 @@ import {
   logSuccess,
   formatDuration,
   truncateFileName,
+  startLogCollection,
+  stopLogCollection,
 } from '@/lib/logger';
 
 export const maxDuration = 300; // 5分（Vercel Pro）
@@ -25,12 +27,16 @@ export const maxDuration = 300; // 5分（Vercel Pro）
 export async function POST(request: NextRequest) {
   let tempPath: string | null = null;
 
+  // ログ収集を開始
+  const logs = startLogCollection();
+
   try {
     // フォームデータからZIPファイルを取得
     const formData = await request.formData();
     const file = formData.get('file') as File;
 
     if (!file) {
+      stopLogCollection();
       return NextResponse.json(
         { success: false, error: 'ファイルが指定されていません' },
         { status: 400 }
@@ -40,6 +46,7 @@ export async function POST(request: NextRequest) {
     // ファイルサイズチェック (最大100MB)
     const maxSize = 100 * 1024 * 1024;
     if (file.size > maxSize) {
+      stopLogCollection();
       return NextResponse.json(
         {
           success: false,
@@ -51,6 +58,7 @@ export async function POST(request: NextRequest) {
 
     // ZIPファイルかチェック
     if (!file.name.toLowerCase().endsWith('.zip')) {
+      stopLogCollection();
       return NextResponse.json(
         { success: false, error: 'ZIPファイルをアップロードしてください' },
         { status: 400 }
@@ -143,6 +151,9 @@ export async function POST(request: NextRequest) {
 
     logSuccess(`All processing complete! Total time: ${formatDuration(totalTime)}`);
 
+    // ログ収集を停止
+    stopLogCollection();
+
     // 結果を返す
     const fileName = file.name.replace('.zip', '_変換結果.zip');
 
@@ -154,10 +165,14 @@ export async function POST(request: NextRequest) {
         'X-Total-Folders': folders.length.toString(),
         'X-Success-Count': successCount.toString(),
         'X-Error-Count': errorCount.toString(),
+        'X-Conversion-Logs': encodeURIComponent(JSON.stringify(logs)),
       },
     });
   } catch (error) {
     console.error('Bulk conversion error:', error);
+
+    // ログ収集を停止
+    stopLogCollection();
 
     // クリーンアップ
     if (tempPath) {

@@ -6,6 +6,7 @@ import { sanitizeFileName } from "./xml-parser";
 
 export const DOCUMENT_NAMES: { [key: string]: string } = {
   "7130001": "健康保険・厚生年金保険被保険者標準報酬決定通知書",
+  "7140001": "健康保険・厚生年金保険被保険者標準報酬改定通知書",
   "7200001": "厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ",
   "henrei": "返戻のお知らせ",
   "kagami": "日本年金機構からのお知らせ",
@@ -50,4 +51,18 @@ export function generatePdfFilename(
   const personPart = formatInsuredPersonNames(names);
   const documentName = getDocumentName(documentType);
   return `${personPart}_${documentName}.pdf`;
+}
+
+/**
+ * 7140001用のPDFファイル名を生成（改定年月を含む）
+ * @param revisionDate 改定年月（例: "R7年9月"）
+ * @param documentType 通知書番号（7140001）
+ * @returns "{改定年月}_{通知書名}.pdf"
+ */
+export function generatePdfFilenameFor7140001(
+  revisionDate: string,
+  documentType: string
+): string {
+  const documentName = getDocumentName(documentType);
+  return `${revisionDate}_${documentName}.pdf`;
 }

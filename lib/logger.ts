@@ -2,6 +2,24 @@
  * ログ出力用ユーティリティ
  */
 
+// ログを収集するための配列（オプショナル）
+let logCollector: string[] | null = null;
+
+/**
+ * ログ収集を開始
+ */
+export function startLogCollection(): string[] {
+  logCollector = [];
+  return logCollector;
+}
+
+/**
+ * ログ収集を停止
+ */
+export function stopLogCollection(): void {
+  logCollector = null;
+}
+
 /**
  * タイムスタンプ付きログメッセージを生成
  */
@@ -11,7 +29,13 @@ export function log(message: string, emoji = ''): void {
     minute: '2-digit',
     second: '2-digit',
   });
-  console.log(`[${timestamp}] ${emoji}${emoji ? ' ' : ''}${message}`);
+  const formattedMessage = `[${timestamp}] ${emoji}${emoji ? ' ' : ''}${message}`;
+  console.log(formattedMessage);
+
+  // ログコレクターが有効な場合は収集
+  if (logCollector) {
+    logCollector.push(formattedMessage);
+  }
 }
 
 /**
@@ -19,7 +43,13 @@ export function log(message: string, emoji = ''): void {
  */
 export function logIndent(message: string, level = 1, emoji = ''): void {
   const indent = '  '.repeat(level);
-  console.log(`${indent}${emoji}${emoji ? ' ' : ''}${message}`);
+  const formattedMessage = `${indent}${emoji}${emoji ? ' ' : ''}${message}`;
+  console.log(formattedMessage);
+
+  // ログコレクターが有効な場合は収集
+  if (logCollector) {
+    logCollector.push(formattedMessage);
+  }
 }
 
 /**

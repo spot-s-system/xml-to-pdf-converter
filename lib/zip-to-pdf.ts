@@ -3,11 +3,12 @@ import { generatePdfFromHtml } from "./pdf-generator";
 import { optimizeXslForPdf } from "./xsl-adjuster";
 import {
   extractInsuredPersonsFrom7130001,
+  extractInsuredPersonsFrom7140001,
   extractInsuredPersonsFrom7200001,
   extractInsuredPersonsFromHenrei,
   extractBusinessOwnerFromKagami,
 } from "./xml-parser";
-import { generatePdfFilename } from "./document-names";
+import { generatePdfFilename, generatePdfFilenameFor7140001 } from "./document-names";
 import JSZip from "jszip";
 
 interface ExtractedFiles {
@@ -19,22 +20,30 @@ interface PdfFile {
   buffer: Buffer;
 }
 
+type LogCallback = (message: string) => void;
+
 export async function convertZipToPdfZip(
-  files: ExtractedFiles
+  files: ExtractedFiles,
+  onLog?: LogCallback
 ): Promise<Buffer> {
   const pdfFiles: PdfFile[] = [];
+
+  const log = (message: string) => {
+    console.log(message);
+    onLog?.(message);
+  };
 
   // 表紙（kagami）の処理
   // 到達番号のXMLファイルを検出（通知書以外のXML）
   const kagamiXml = Object.keys(files).find(
-    (f) => !f.includes("7130001") && !f.includes("7200001") && !f.includes("henrei") && f.endsWith(".xml")
+    (f) => !f.includes("7130001") && !f.includes("7140001") && !f.includes("7200001") && !f.includes("henrei") && f.endsWith(".xml")
   );
 
   const kagamiXsl = Object.keys(files).find(
     (f) => f.includes("kagami") && f.endsWith(".xsl")
   );
 
-  console.log(`🔍 Detected kagami XML: ${kagamiXml}, XSL: ${kagamiXsl}`);
+  log(`🔍 Detected kagami XML: ${kagamiXml}, XSL: ${kagamiXsl}`);
 
   if (kagamiXml && kagamiXsl) {
     const xmlContent = files[kagamiXml] as string;
@@ -42,7 +51,7 @@ export async function convertZipToPdfZip(
     const businessOwner = extractBusinessOwnerFromKagami(xmlContent);
 
     try {
-      console.log(`🔄 Processing kagami: ${kagamiXml}`);
+      log(`🔄 Processing kagami: ${kagamiXml}`);
       const html = await applyXsltTransformation(
         xmlContent,
         optimizeXslForPdf(xslContent)
@@ -54,9 +63,10 @@ export async function convertZipToPdfZip(
       const filename = generatePdfFilename([businessOwner], "kagami");
 
       pdfFiles.push({ filename, buffer: pdfBuffer });
-      console.log(`✅ Generated: ${filename}`);
+      log(`✅ Generated: ${filename}`);
     } catch (error) {
-      console.error(`❌ Failed to convert ${kagamiXml}:`, error);
+      const errorMsg = `❌ Failed to convert ${kagamiXml}: ${error instanceof Error ? error.message : String(error)}`;
+      log(errorMsg);
       console.error(`Stack trace:`, error instanceof Error ? error.stack : "");
     }
   }
@@ -92,9 +102,48 @@ export async function convertZipToPdfZip(
         // ファイル名: {名前}様{他N名}_{通知書名}.pdf
         const filename = generatePdfFilename(names, "7130001");
         pdfFiles.push({ filename, buffer: pdfBuffer });
-        console.log(`✅ Generated: ${filename} (${persons.length}名)`);
+        log(`✅ Generated: ${filename} (${persons.length}名)`);
       } catch (error) {
-        console.error(`Failed to convert 7130001:`, error);
+        const errorMsg = `❌ Failed to convert 7130001: ${error instanceof Error ? error.message : String(error)}`;
+        log(errorMsg);
+      }
+    }
+  }
+
+  // 7140001.xml (標準報酬改定通知書) の処理
+  const xml7140001 = Object.keys(files).find((f) => /7140001\.xml$/i.test(f));
+  const xsl7140001 = Object.keys(files).find((f) => /7140001\.xsl$/i.test(f));
+
+  if (xml7140001 && xsl7140001) {
+    const xmlContent = files[xml7140001] as string;
+    const xslContent = files[xsl7140001] as string;
+    const persons = extractInsuredPersonsFrom7140001(xmlContent);
+
+    if (persons.length > 0) {
+      try {
+        // 複数の被保険者のHTMLを結合
+        const htmlPages: string[] = [];
+
+        for (const person of persons) {
+          const html = await applyXsltTransformation(
+            person.xmlContent,
+            optimizeXslForPdf(xslContent)
+          );
+          htmlPages.push(html);
+        }
+
+        // 全てのHTMLを1つのPDFにまとめる
+        const combinedHtml = combineHtmlPages(htmlPages);
+        const pdfBuffer = await generatePdfFromHtml(combinedHtml);
+
+        // ファイル名: {改定年月}_{通知書名}.pdf
+        // 全員の改定年月が同じと仮定して、最初の被保険者の改定年月を使用
+        const filename = generatePdfFilenameFor7140001(persons[0].revisionDate, "7140001");
+        pdfFiles.push({ filename, buffer: pdfBuffer });
+        log(`✅ Generated: ${filename} (${persons.length}名)`);
+      } catch (error) {
+        const errorMsg = `❌ Failed to convert 7140001: ${error instanceof Error ? error.message : String(error)}`;
+        log(errorMsg);
       }
     }
   }
@@ -130,9 +179,10 @@ export async function convertZipToPdfZip(
         // ファイル名: {名前}様{他N名}_{通知書名}.pdf
         const filename = generatePdfFilename(names, "7200001");
         pdfFiles.push({ filename, buffer: pdfBuffer });
-        console.log(`✅ Generated: ${filename} (${persons.length}名)`);
+        log(`✅ Generated: ${filename} (${persons.length}名)`);
       } catch (error) {
-        console.error(`Failed to convert 7200001:`, error);
+        const errorMsg = `❌ Failed to convert 7200001: ${error instanceof Error ? error.message : String(error)}`;
+        log(errorMsg);
       }
     }
   }
@@ -168,9 +218,10 @@ export async function convertZipToPdfZip(
         // ファイル名: {名前}様{他N名}_{通知書名}.pdf
         const filename = generatePdfFilename(names, "henrei");
         pdfFiles.push({ filename, buffer: pdfBuffer });
-        console.log(`✅ Generated: ${filename} (${persons.length}名)`);
+        log(`✅ Generated: ${filename} (${persons.length}名)`);
       } catch (error) {
-        console.error(`Failed to convert henrei:`, error);
+        const errorMsg = `❌ Failed to convert henrei: ${error instanceof Error ? error.message : String(error)}`;
+        log(errorMsg);
       }
     }
   }
@@ -195,7 +246,7 @@ export async function convertZipToPdfZip(
   // ZIPをバッファに変換
   const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
 
-  console.log(`📦 Created ZIP with ${pdfFiles.length} PDFs + ${Object.keys(files).length} original files`);
+  log(`📦 Created ZIP with ${pdfFiles.length} PDFs + ${Object.keys(files).length} original files`);
 
   return zipBuffer;
 }
