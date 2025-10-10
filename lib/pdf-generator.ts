@@ -29,15 +29,15 @@ export async function generatePdfFromHtml(
 
     console.log("✨ Content rendering complete");
 
-    // Generate PDF with optimized margins
+    // Generate PDF with optimized margins - increased right margin
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
       margin: {
         top: "5mm",
         bottom: "5mm",
-        left: "10mm",
-        right: "10mm",
+        left: "5mm",
+        right: "10mm",  // Increased right margin to prevent cut-off
       },
     });
 

@@ -39,7 +39,13 @@ export async function applyXsltTransformation(
                 throw new Error("XML parsing error: " + xmlError.textContent);
             }
             if (xslError) {
-                throw new Error("XSL parsing error: " + xslError.textContent);
+                const errorText = xslError.textContent || "";
+                // Extract line and column information if available
+                const lineMatch = errorText.match(/line (\\d+)/);
+                const colMatch = errorText.match(/column (\\d+)/);
+                const line = lineMatch ? lineMatch[1] : "unknown";
+                const col = colMatch ? colMatch[1] : "unknown";
+                throw new Error(\`XSL parsing error at line \${line}, column \${col}: \${errorText}\`);
             }
 
             // Create XSLT processor

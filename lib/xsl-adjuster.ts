@@ -4,7 +4,9 @@
  */
 
 // A4 dimensions at 96dpi
-const A4_WIDTH_PX = 794; // 210mm at 96dpi
+// Adjusted to account for PDF margins (5mm left + 5mm right = ~38px)
+// Further reduced to ensure content doesn't get cut off on the right
+const A4_WIDTH_PX = 720; // Further reduced from 740 to provide even more margin
 // const A4_HEIGHT_PX = 1123; // 297mm at 96dpi (not currently used)
 
 // Common original widths in government documents
@@ -49,21 +51,29 @@ export function adjustXslForA4(xslContent: string): string {
   const pageStyles = `
     @page {
       size: A4;
-      margin: 10mm;
+      margin: 5mm;
     }
     @media print {
       body {
         width: 100%;
         max-width: ${A4_WIDTH_PX}px;
+        padding-right: 15px; /* Additional right padding - increased */
       }
     }
   `;
 
-  // Insert page styles before closing </style> tag
-  adjustedXsl = adjustedXsl.replace(
-    /<\/style>/i,
-    `${pageStyles}</style>`
-  );
+  // Insert page styles before closing style tag (handle both cases)
+  if (adjustedXsl.match(/<\/STYLE>/i)) {
+    adjustedXsl = adjustedXsl.replace(
+      /<\/STYLE>/i,
+      `${pageStyles}</STYLE>`
+    );
+  } else {
+    adjustedXsl = adjustedXsl.replace(
+      /<\/style>/i,
+      `${pageStyles}</style>`
+    );
+  }
 
   return adjustedXsl;
 }
@@ -123,7 +133,7 @@ export function addPreTextWrapping(xslContent: string): string {
       word-wrap: break-word !important;
       word-break: break-all !important;  /* Allow breaking anywhere in CJK text */
       overflow-wrap: anywhere !important; /* More aggressive wrapping */
-      max-width: 310px !important;       /* 250px × 1.24 (scaled for A4) */
+      max-width: 281px !important;       /* 250px × 1.125 (scaled for A4 with even more margin) */
       overflow: hidden !important;        /* Prevent overflow */
       line-height: 1.3 !important;       /* Improve readability */
       font-size: 10px !important;        /* Appropriate font size */
@@ -135,8 +145,8 @@ export function addPreTextWrapping(xslContent: string): string {
       word-wrap: break-word !important;
       word-break: break-all !important;  /* Allow breaking anywhere in CJK text */
       overflow-wrap: anywhere !important; /* More aggressive wrapping */
-      max-width: 710px !important;       /* 573px × 1.24 (scaled for A4) */
-      max-height: 188px !important;      /* 152px × 1.24 (scaled for A4) */
+      max-width: 645px !important;       /* 573px × 1.125 (scaled for A4 with even more margin) */
+      max-height: 171px !important;      /* 152px × 1.125 (scaled for A4 with even more margin) */
       overflow: hidden !important;        /* Prevent overflow */
       line-height: 1.15 !important;      /* Tighter line spacing */
       font-size: 8px !important;         /* Smaller font to fit more text */
@@ -157,15 +167,15 @@ export function addPreTextWrapping(xslContent: string): string {
 
     /* Table cells containing oshirase content */
     td:has(pre.oshirase), td > pre.oshirase {
-      max-width: 310px !important;     /* 250px × 1.24 (scaled for A4) */
+      max-width: 281px !important;     /* 250px × 1.125 (scaled for A4 with even more margin) */
       word-break: break-all !important;
       overflow-wrap: anywhere !important;
     }
 
     /* Table cells containing kyouji content */
     td.kyouji, td:has(pre.kyouji) {
-      max-width: 710px !important;     /* 573px × 1.24 (scaled for A4) */
-      max-height: 188px !important;    /* 152px × 1.24 (scaled for A4) */
+      max-width: 645px !important;     /* 573px × 1.125 (scaled for A4 with even more margin) */
+      max-height: 171px !important;    /* 152px × 1.125 (scaled for A4 with even more margin) */
       word-break: break-all !important;
       overflow-wrap: anywhere !important;
       overflow: hidden !important;
@@ -179,11 +189,18 @@ export function addPreTextWrapping(xslContent: string): string {
     }
   `;
 
-  // Insert before closing </style> tag
-  adjusted = adjusted.replace(
-    /<\/style>/i,
-    `${preStyles}</style>`
-  );
+  // Insert before closing style tag (handle both cases)
+  if (adjusted.match(/<\/STYLE>/i)) {
+    adjusted = adjusted.replace(
+      /<\/STYLE>/i,
+      `${preStyles}</STYLE>`
+    );
+  } else {
+    adjusted = adjusted.replace(
+      /<\/style>/i,
+      `${preStyles}</style>`
+    );
+  }
 
   return adjusted;
 }
@@ -193,8 +210,18 @@ export function addPreTextWrapping(xslContent: string): string {
  * Scales to A4 size and preserves original layout proportions
  */
 export function optimizeXslForPdf(xslContent: string): string {
-  // Step 1: Normalize HTML tag case FIRST to avoid case mismatch issues
   let optimized = xslContent;
+
+  // Step 1: Fix HTML tags to be XML-compliant BEFORE normalization
+  optimized = fixHtmlTags(optimized);
+
+  // Step 2: Apply A4 scaling to fit the page properly
+  optimized = adjustXslForA4(optimized);
+
+  // Step 3: Add text wrapping for pre tags
+  optimized = addPreTextWrapping(optimized);
+
+  // Step 4: Normalize HTML tag case AFTER all modifications
   optimized = optimized.replace(/<(\/?)HTML>/gi, '<$1html>');
   optimized = optimized.replace(/<(\/?)HEAD>/gi, '<$1head>');
   optimized = optimized.replace(/<(\/?)BODY>/gi, '<$1body>');
@@ -212,16 +239,7 @@ export function optimizeXslForPdf(xslContent: string): string {
   optimized = optimized.replace(/<(\/?)PRE>/gi, '<$1pre>');
   optimized = optimized.replace(/<(\/?)FORM>/gi, '<$1form>');
 
-  // Step 2: Fix HTML tags to be XML-compliant
-  optimized = fixHtmlTags(optimized);
-
-  // Step 3: Apply A4 scaling to fit the page properly
-  optimized = adjustXslForA4(optimized);
-
-  // Step 4: Add text wrapping for pre tags
-  optimized = addPreTextWrapping(optimized);
-
-  // Now add meta tags after <head>
+  // Step 5: Add meta tags after <head>
   optimized = optimized.replace(
     /<head>/i,
     `<head>
