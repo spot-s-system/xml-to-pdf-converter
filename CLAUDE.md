@@ -40,6 +40,21 @@ The conversion process follows this flow:
 4. **XSLT Transformation** (`lib/xslt-processor.ts`): Transforms XML to HTML using browser-based XSLTProcessor via Puppeteer
 5. **PDF Generation** (`lib/pdf-generator.ts`): Renders HTML to PDF using Puppeteer
 
+### Bulk ZIP Processing
+
+For ZIP files containing multiple folders, the application supports bulk processing via `/api/bulk-convert`:
+- **Bulk Processor** (`lib/bulk-zip-processor.ts`): Processes multiple folders in a single ZIP file
+- Each folder (named with pattern `{number}_{company}_{insurer}_{procedure}_...`) is processed independently
+- Nested ZIPs within folders are automatically extracted and processed
+- Original XML/XSL files and other files (PDFs, TXTs) are preserved in the output ZIP
+
+#### PDF Renaming Feature
+For employment insurance cases with "離職票交付あり" (separation certificate issuance) in the folder name:
+- Existing PDF files starting with numbers are automatically renamed
+- The numeric prefix is replaced with the insurer's name extracted from the folder name
+- Example: `2501793096_雇用保険被保険者資格喪失確認通知書.pdf` → `川村夏菜_雇用保険被保険者資格喪失確認通知書.pdf`
+- This feature only affects existing PDFs in `otherFiles`, not newly generated PDFs
+
 ### Document Types Supported
 
 The system recognizes and processes these Japanese government documents in order:

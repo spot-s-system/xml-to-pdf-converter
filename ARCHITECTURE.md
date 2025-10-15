@@ -14,10 +14,15 @@ xml-to-pdf-converter/
 │
 ├── lib/                          # コアロジック
 │   ├── zip-to-pdf.ts            # ⭐ オーケストレーター
+│   ├── bulk-zip-processor.ts    # ⭐ 一括ZIP処理（複数フォルダ対応）
 │   ├── xslt-processor.ts        # ⭐ XML+XSL→HTML変換
 │   ├── pdf-generator.ts         # ⭐ HTML→PDF生成
 │   ├── xsl-adjuster.ts          # XSLスタイルシート最適化
 │   ├── browser-pool.ts          # ⭐ Puppeteerブラウザプール管理
+│   ├── procedure-detector.ts    # 手続き種別判定
+│   ├── xml-info-extractor.ts    # XML情報抽出
+│   ├── pdf-naming.ts            # PDFファイル名生成
+│   ├── logger.ts                # リアルタイムログ出力
 │   └── utils.ts                 # ユーティリティ関数
 │
 ├── components/                   # UIコンポーネント
@@ -355,3 +360,241 @@ export async function getBrowser(): Promise<Browser> {
 - アイドル時: ~100MB
 - 変換中: ~150-200MB
 - Render free tier: 512MB（十分な余裕）
+
+---
+
+## 一括ZIP処理（Bulk ZIP Processor）
+
+### 概要
+`lib/bulk-zip-processor.ts` は複数フォルダを含むZIPファイルを一括処理し、各フォルダごとにPDF変換を実行する機能を提供します。
+
+### フォルダ構造パターン
+
+```
+bulk-upload.zip
+├── 0001_会社名_被保険者名_手続き種別/
+│   ├── XML files...
+│   ├── XSL files...
+│   └── nested.zip (ネストされたZIPも対応)
+├── 0002_会社名_被保険者名_手続き種別/
+│   ├── XML files...
+│   └── existing.pdf (既存PDFはそのまま保持)
+└── 0003_会社名_被保険者名_[雇保]資格喪失(離職票交付あり)_.../
+    ├── XML files...
+    └── 2501793096_雇用保険被保険者資格喪失確認通知書.pdf
+```
+
+### 処理フロー
+
+```typescript
+// 1. ZIP解凍
+const extractPath = await extractZipFile(zipBuffer);
+
+// 2. フォルダ構造分析
+const folders = await analyzeFolderStructure(extractPath);
+// - 4桁番号で始まるフォルダを検出
+// - ネストされたZIPを展開
+// - XML/XSLペアを識別
+// - その他のファイル（PDF等）をリストアップ
+
+// 3. 各フォルダを処理
+const results = await processFolders(folders);
+// - XML/XSLペアをPDF化
+// - 既存ファイルを保持
+
+// 4. 結果ZIPを作成
+const resultZip = await createResultZip(results, extractPath);
+// - 生成されたPDFを追加
+// - 元のXML/XSLファイルをコピー
+// - その他のファイルをコピー（PDFリネーム処理適用）
+```
+
+### PDFリネーム機能
+
+雇用保険の離職票交付が伴う手続きでは、既存のPDFファイル（数字で始まるもの）を被保険者名でリネームします。
+
+#### 対象条件
+- フォルダ名に「**離職票交付あり**」が含まれている
+- ファイル名が数字で始まる `.pdf` ファイル
+
+#### リネーム例
+
+**フォルダ名:**
+```
+0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_...
+```
+
+**リネーム処理:**
+```
+変更前: 2501793096_雇用保険被保険者資格喪失確認通知書.pdf
+変更後: 川村夏菜_雇用保険被保険者資格喪失確認通知書.pdf
+```
+
+#### 実装詳細
+
+```typescript
+// フォルダ名から被保険者名を抽出
+function extractInsurerNameFromFolderName(folderName: string): string | null {
+  // 「離職票交付あり」が含まれていない場合は null
+  if (!folderName.includes('離職票交付あり')) {
+    return null;
+  }
+
+  // パターン: 4桁の番号_会社名_被保険者名_...
+  const match = folderName.match(/^\d{4}_[^_]+_([^_]+)_/);
+  if (match) {
+    // 被保険者名を抽出し、スペースを削除
+    return match[1].replace(/\s+/g, '');
+  }
+  return null;
+}
+
+// PDFファイル名を必要に応じてリネーム
+function renamePdfIfNeeded(fileName: string, insurerName: string | null): string {
+  if (!fileName.toLowerCase().endsWith('.pdf') || !insurerName) {
+    return fileName;
+  }
+
+  // 数字で始まるPDFファイルのみリネーム対象
+  const match = fileName.match(/^\d+_(.+)$/);
+  if (match) {
+    return `${insurerName}_${match[1]}`;
+  }
+
+  return fileName;
+}
+```
+
+#### 重要な設計方針
+
+1. **既存PDF生成ロジックには影響なし**
+   - 新規生成されるPDFは従来通りの命名規則
+   - リネーム処理は `otherFiles`（既存ファイル）にのみ適用
+
+2. **条件付き実行**
+   - 「離職票交付あり」を含むフォルダのみ処理
+   - その他のフォルダでは既存のファイル名を保持
+
+3. **ファイルパターンマッチング**
+   - 数字で始まるPDFのみが対象
+   - それ以外のPDFファイルは変更されない
+
+### ネストされたZIP対応
+
+```typescript
+// ネストされたZIPを検出
+const nestedZips = files.filter(file =>
+  path.extname(file).toLowerCase() === '.zip'
+);
+
+for (const nestedZipFile of nestedZips) {
+  // 1. ネストされたZIPを読み込み
+  const nestedZipBuffer = await fs.readFile(nestedZipPath);
+  const nestedZip = await JSZip.loadAsync(nestedZipBuffer);
+
+  // 2. XML/XSLファイルを一時ディレクトリに展開
+  const tempNestedPath = await fs.mkdtemp(path.join(tmpdir(), 'nested-'));
+
+  // 3. ドキュメントペアを検出
+  const nestedDocs = await detectDocumentPairs(tempNestedPath, nestedFiles);
+
+  // 4. 通常のドキュメントと結合
+  extractedDocuments.push(...nestedDocs);
+}
+```
+
+### リアルタイムログ出力
+
+一括処理中の進捗状況はリアルタイムで出力されます：
+
+```typescript
+import { log, logIndent, logError, createProgressBar } from './logger';
+
+// フォルダ処理ログ
+log(`${progress} Processing folder ${folderNumber}/${totalFolders}`, '📁');
+logIndent(truncateFileName(folder.folderName, 60), 1);
+
+// ドキュメント処理ログ
+logIndent(`📄 Document ${docIndex + 1}/${folder.documents.length}`, 2);
+
+// 完了ログ
+logIndent(`✅ Completed: ${pdfs.length} PDFs generated (${duration})`, 1);
+```
+
+### データ構造
+
+```typescript
+export interface DocumentPair {
+  type: 'kagami' | 'notification';
+  xmlPath: string;
+  xslPath: string;
+  xmlFileName: string;
+  xslFileName: string;
+}
+
+export interface FolderStructure {
+  folderName: string;
+  folderPath: string;
+  documents: DocumentPair[];
+  xmlXslFiles: string[];  // 元のXML/XSLファイル
+  otherFiles: string[];   // PDF、TXT等のその他ファイル
+}
+
+export interface ProcessedFolder {
+  folderName: string;
+  success: boolean;
+  pdfs?: GeneratedPdf[];
+  xmlXslFiles?: string[];
+  otherFiles?: string[];
+  error?: string;
+}
+```
+
+### エラーハンドリング
+
+変換失敗時は、該当フォルダにエラーファイルを配置：
+
+```typescript
+if (!folder.success) {
+  const errorMessage = `PDFの変換中にエラーが発生しました
+
+フォルダ: ${folder.folderName}
+エラー内容: ${folder.error}
+
+対処方法:
+1. 元のZIPファイルの内容を確認してください
+2. 不足しているファイルを追加して再度アップロードしてください`;
+
+  zip.file(`${folderPrefix}変換エラー.txt`, errorMessage);
+}
+```
+
+### API エンドポイント
+
+一括処理は `/api/bulk-convert` エンドポイントで提供：
+
+```typescript
+// app/api/bulk-convert/route.ts
+export async function POST(request: NextRequest) {
+  // 1. ZIPファイル受信
+  const formData = await request.formData();
+  const file = formData.get("file") as File;
+
+  // 2. 一括処理実行
+  const extractPath = await extractZipFile(zipBuffer);
+  const folders = await analyzeFolderStructure(extractPath);
+  const results = await processFolders(folders);
+  const resultZip = await createResultZip(results, extractPath);
+
+  // 3. クリーンアップ
+  await cleanupTempDirectory(extractPath);
+
+  // 4. 結果ZIPを返却
+  return new NextResponse(resultZip, {
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="${encodedFilename}"`,
+    },
+  });
+}
+```
