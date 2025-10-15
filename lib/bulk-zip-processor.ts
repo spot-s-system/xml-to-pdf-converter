@@ -616,7 +616,7 @@ function extractInsurerNameFromFolderName(folderName: string): string | null {
 /**
  * PDFファイル名を必要に応じてリネーム
  * 数字で始まるPDFファイルの場合、数字部分を被保険者名に置き換える
- * 例: "2501793096_雇用保険被保険者資格喪失確認通知書.pdf" → "川村夏菜_雇用保険被保険者資格喪失確認通知書.pdf"
+ * 例: "2501793096_雇用保険被保険者資格喪失確認通知書.pdf" → "川村夏菜様_雇用保険被保険者資格喪失確認通知書.pdf"
  */
 function renamePdfIfNeeded(fileName: string, insurerName: string | null): string {
   // PDFファイルでない場合、または被保険者名がない場合はそのまま返す
@@ -627,8 +627,8 @@ function renamePdfIfNeeded(fileName: string, insurerName: string | null): string
   // 数字で始まるPDFファイルのみリネーム対象
   const match = fileName.match(/^\d+_(.+)$/);
   if (match) {
-    // 数字部分を被保険者名に置き換え
-    return `${insurerName}_${match[1]}`;
+    // 数字部分を被保険者名に置き換え（「様」を付与）
+    return `${insurerName}様_${match[1]}`;
   }
 
   // パターンに合わない場合はそのまま返す
