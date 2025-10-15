@@ -592,6 +592,50 @@ async function processFolderDocuments(
 }
 
 /**
+ * フォルダ名から被保険者名を抽出
+ * パターン: {番号}_{会社名}_{被保険者名}_{手続き種別}...
+ * 例: "0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_..." → "川村夏菜"
+ *
+ * 重要: 「離職票交付あり」がフォルダ名に含まれている場合のみ被保険者名を返す
+ */
+function extractInsurerNameFromFolderName(folderName: string): string | null {
+  // 「離職票交付あり」が含まれていない場合は null を返す
+  if (!folderName.includes('離職票交付あり')) {
+    return null;
+  }
+
+  // パターン: 4桁の番号_会社名_被保険者名_...
+  const match = folderName.match(/^\d{4}_[^_]+_([^_]+)_/);
+  if (match) {
+    // 被保険者名を抽出し、スペースを削除
+    return match[1].replace(/\s+/g, '');
+  }
+  return null;
+}
+
+/**
+ * PDFファイル名を必要に応じてリネーム
+ * 数字で始まるPDFファイルの場合、数字部分を被保険者名に置き換える
+ * 例: "2501793096_雇用保険被保険者資格喪失確認通知書.pdf" → "川村夏菜_雇用保険被保険者資格喪失確認通知書.pdf"
+ */
+function renamePdfIfNeeded(fileName: string, insurerName: string | null): string {
+  // PDFファイルでない場合、または被保険者名がない場合はそのまま返す
+  if (!fileName.toLowerCase().endsWith('.pdf') || !insurerName) {
+    return fileName;
+  }
+
+  // 数字で始まるPDFファイルのみリネーム対象
+  const match = fileName.match(/^\d+_(.+)$/);
+  if (match) {
+    // 数字部分を被保険者名に置き換え
+    return `${insurerName}_${match[1]}`;
+  }
+
+  // パターンに合わない場合はそのまま返す
+  return fileName;
+}
+
+/**
  * 変換結果をZIPファイルにまとめる
  */
 export async function createResultZip(
@@ -604,6 +648,9 @@ export async function createResultZip(
     // "root"フォルダの場合は特別扱い（ルートにファイルを配置）
     const isRootFolder = folder.folderName === 'root';
     const folderPrefix = isRootFolder ? '' : `${folder.folderName}/`;
+
+    // フォルダ名から被保険者名を抽出（PDFリネーム用）
+    const insurerName = extractInsurerNameFromFolderName(folder.folderName);
 
     if (folder.success && folder.pdfs) {
       // PDFを追加
@@ -628,7 +675,7 @@ export async function createResultZip(
         }
       }
 
-      // その他のファイルをコピー
+      // その他のファイルをコピー（PDFはリネーム処理を適用）
       if (folder.otherFiles) {
         for (const fileName of folder.otherFiles) {
           // rootフォルダの場合は extractPath 直下、それ以外は subfolder から読み込む
@@ -638,7 +685,11 @@ export async function createResultZip(
 
           try {
             const fileBuffer = await fs.readFile(sourcePath);
-            zip.file(`${folderPrefix}${fileName}`, fileBuffer);
+
+            // PDFファイルの場合、必要に応じてリネーム
+            const targetFileName = renamePdfIfNeeded(fileName, insurerName);
+
+            zip.file(`${folderPrefix}${targetFileName}`, fileBuffer);
           } catch (error) {
             console.error(`Failed to copy file ${fileName}:`, error);
           }
