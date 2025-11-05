@@ -48,8 +48,28 @@ export function extractNoticeTitle(
   xmlContent: string,
   kagazmiXmlContent?: string
 ): string {
-  // まずkagami.xmlから<APPTITLE>を探す
-  if (kagazmiXmlContent) {
+  // N7xxxxx形式の場合、ルートタグから通知書名を決定
+  const rootTagMatch = xmlContent.match(/<(N7\d{6})[\s>]/);
+  if (rootTagMatch) {
+    const rootTag = rootTagMatch[1];
+    const documentTitles: Record<string, string> = {
+      'N7100001': '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書',
+      'N7130001': '健康保険・厚生年金保険被保険者標準報酬決定通知書',
+      'N7140001': '健康保険・厚生年金保険被保険者標準報酬改定通知書',
+      'N7150001': '算定基礎届',
+      'N7160001': '賞与支払届',
+      'N7170003': '被扶養者（異動）届',
+      'N7200001': '厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ',
+      'N7210001': '厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ',
+    };
+
+    if (documentTitles[rootTag]) {
+      return documentTitles[rootTag];
+    }
+  }
+
+  // kagami.xmlの場合のみ<APPTITLE>を使用
+  if (kagazmiXmlContent && xmlContent === kagazmiXmlContent) {
     const appTitleMatch = kagazmiXmlContent.match(
       /<APPTITLE>(.*?)<\/APPTITLE>/
     );
@@ -89,7 +109,12 @@ export function extractFromSocialInsurance(
     info.insurerCount = insurerBlocks.length;
 
     insurerBlocks.forEach((block) => {
-      const nameMatch = block.match(/<被保険者(?:漢字)?氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者(?:漢字)?氏名>/);
+      // 70歳以上被用者の場合は被用者漢字氏名を使用
+      let nameMatch = block.match(/<被用者漢字氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被用者漢字氏名>/);
+      if (!nameMatch) {
+        // 通常の被保険者氏名
+        nameMatch = block.match(/<被保険者(?:漢字)?氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者(?:漢字)?氏名>/);
+      }
       const numberMatch = block.match(/<被保険者番号>(.*?)<\/被保険者番号>/);
 
       if (nameMatch) {
@@ -121,15 +146,31 @@ export function extractFromSocialInsurance(
 
   // 改定年月を抽出（月額変更・算定基礎届の場合）
   if (procedureType === '月額変更' || procedureType === '算定基礎届') {
-    const eraMatch = xmlContent.match(/<改定年月_元号>(.*?)<\/改定年月_元号>/);
-    const yearMatch = xmlContent.match(/<改定年月_年>(.*?)<\/改定年月_年>/);
-    const monthMatch = xmlContent.match(/<改定年月_月>(.*?)<\/改定年月_月>/);
+    // N7210001の場合は月額改定年月を使用
+    const rootTagMatch = xmlContent.match(/<(N7210001)[\s>]/);
+    if (rootTagMatch) {
+      const eraMatch = xmlContent.match(/<月額改定年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/月額改定年月_元号>/);
+      const yearMatch = xmlContent.match(/<月額改定年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/月額改定年月_年>/);
+      const monthMatch = xmlContent.match(/<月額改定年月_月>(\d+)<\/月額改定年月_月>/);
 
-    if (eraMatch && yearMatch && monthMatch) {
-      const era = convertEraCode(eraMatch[1]);
-      const year = yearMatch[1].padStart(2, '0');
-      const month = monthMatch[1].padStart(2, '0');
-      info.revisionDate = `${era}${year}年${month}月`;
+      if (eraMatch && yearMatch && monthMatch) {
+        const era = convertEraCode(eraMatch[1]);
+        const year = yearMatch[1].padStart(2, '0');
+        const month = monthMatch[1].padStart(2, '0');
+        info.revisionDate = `${era}${year}年${month}月`;
+      }
+    } else {
+      // 通常の改定年月を使用
+      const eraMatch = xmlContent.match(/<改定年月_元号>(.*?)<\/改定年月_元号>/);
+      const yearMatch = xmlContent.match(/<改定年月_年>(.*?)<\/改定年月_年>/);
+      const monthMatch = xmlContent.match(/<改定年月_月>(.*?)<\/改定年月_月>/);
+
+      if (eraMatch && yearMatch && monthMatch) {
+        const era = convertEraCode(eraMatch[1]);
+        const year = yearMatch[1].padStart(2, '0');
+        const month = monthMatch[1].padStart(2, '0');
+        info.revisionDate = `${era}${year}年${month}月`;
+      }
     }
   }
 

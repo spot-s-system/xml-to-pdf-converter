@@ -32,12 +32,14 @@ export function detectProcedureType(xmlContent: string): ProcedureInfo {
 
   // N7xxxxx系の社会保険フォーマット
   const socialInsurancePatterns: Record<string, ProcedureType> = {
+    N7100001: '取得', // 資格取得確認および標準報酬決定通知書
     N7130001: '取得', // 標準報酬決定通知書
     N7140001: '月額変更', // 標準報酬改定通知書
     N7150001: '算定基礎届', // 算定基礎届
     N7160001: '賞与', // 賞与支払届
     N7170003: '取得', // 被扶養者（異動）届
     N7200001: '取得', // 70歳以上被用者通知書
+    N7210001: '月額変更', // 70歳以上被用者月額改定通知書
   };
 
   if (socialInsurancePatterns[rootTag]) {
