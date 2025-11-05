@@ -266,15 +266,33 @@ export default function Home() {
 
           <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
             <h3 className="text-sm font-semibold mb-2 text-blue-900 dark:text-blue-100">
-              対応フォーマット
+              対応通知書タイプと出力形式
             </h3>
-            <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
-              <li>• 標準報酬決定通知書 (7130001.xml)</li>
-              <li>• 標準報酬改定通知書 (7140001.xml)</li>
-              <li>• 70歳以上被用者通知 (7200001.xml)</li>
-              <li>• 返戻票 (henrei.xml)</li>
-              <li>• ネストされたZIPにも対応</li>
-            </ul>
+            <div className="text-xs text-blue-800 dark:text-blue-200 space-y-3">
+              <div>
+                <p className="font-semibold mb-1">社会保険系:</p>
+                <ul className="space-y-1 ml-2">
+                  <li>• 資格取得確認通知書 (7100001.xml) → 個人毎に {'{名前}様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書.pdf'}</li>
+                  <li>• 標準報酬決定通知書 (7130001.xml) → 個人毎に {'{名前}様_標準報酬決定通知書.pdf'}</li>
+                  <li>• ★標準報酬改定通知書 (7140001.xml) → 複数名を統合 {'{適用年月}_{通知書名}.pdf'}</li>
+                  <li className="text-xs text-gray-600 dark:text-gray-400 ml-4">例: R7年9月_健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf</li>
+                  <li>• 70歳以上被用者通知 (7200001.xml) → 個人毎に {'{名前}様_厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ.pdf'}</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-semibold mb-1">その他の書類:</p>
+                <ul className="space-y-1 ml-2">
+                  <li>• 表紙 (kagami.xml) → {'{事業主名}様_日本年金機構からのお知らせ.pdf'}</li>
+                  <li>• 返戻票 (henrei.xml) → 複数名を1つのPDFに統合: {'{名前}様他N名_返戻のお知らせ.pdf'}</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-semibold mb-1">その他の機能:</p>
+                <ul className="space-y-1 ml-2">
+                  <li>• ネストされたZIPにも対応</li>
+                </ul>
+              </div>
+            </div>
           </div>
         </div>
       </div>

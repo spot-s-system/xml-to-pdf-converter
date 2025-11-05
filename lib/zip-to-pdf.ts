@@ -2,6 +2,7 @@ import { applyXsltTransformation } from "./xslt-processor";
 import { generatePdfFromHtml } from "./pdf-generator";
 import { optimizeXslForPdf } from "./xsl-adjuster";
 import {
+  extractInsuredPersonsFrom7100001,
   extractInsuredPersonsFrom7130001,
   extractInsuredPersonsFrom7140001,
   extractInsuredPersonsFrom7200001,
@@ -71,6 +72,39 @@ export async function convertZipToPdfZip(
     }
   }
 
+  // 7100001.xml (資格取得確認および標準報酬決定通知書) の処理
+  const xml7100001 = Object.keys(files).find((f) => /7100001\.xml$/i.test(f));
+  const xsl7100001 = Object.keys(files).find((f) => /7100001\.xsl$/i.test(f));
+
+  if (xml7100001 && xsl7100001) {
+    const xmlContent = files[xml7100001] as string;
+    const xslContent = files[xsl7100001] as string;
+    const persons = extractInsuredPersonsFrom7100001(xmlContent);
+
+    if (persons.length > 0) {
+      // 各被保険者ごとに個別のPDFを生成
+      for (const person of persons) {
+        try {
+          log(`🔄 Processing 7100001 for: ${person.name}`);
+          const html = await applyXsltTransformation(
+            person.xmlContent,
+            optimizeXslForPdf(xslContent)
+          );
+          const wrappedHtml = wrapHtmlForPdf(html);
+          const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+
+          // ファイル名: {名前}様_{通知書名}.pdf
+          const filename = generatePdfFilename([person.name], "7100001");
+          pdfFiles.push({ filename, buffer: pdfBuffer });
+          log(`✅ Generated: ${filename}`);
+        } catch (error) {
+          const errorMsg = `❌ Failed to convert 7100001 for ${person.name}: ${error instanceof Error ? error.message : String(error)}`;
+          log(errorMsg);
+        }
+      }
+    }
+  }
+
   // 7130001.xml (標準報酬決定通知書) の処理
   const xml7130001 = Object.keys(files).find((f) => /7130001\.xml$/i.test(f));
   const xsl7130001 = Object.keys(files).find((f) => /7130001\.xsl$/i.test(f));
@@ -81,31 +115,25 @@ export async function convertZipToPdfZip(
     const persons = extractInsuredPersonsFrom7130001(xmlContent);
 
     if (persons.length > 0) {
-      try {
-        // 複数の被保険者のHTMLを結合
-        const htmlPages: string[] = [];
-        const names: string[] = [];
-
-        for (const person of persons) {
+      // 各被保険者ごとに個別のPDFを生成
+      for (const person of persons) {
+        try {
+          log(`🔄 Processing 7130001 for: ${person.name}`);
           const html = await applyXsltTransformation(
             person.xmlContent,
             optimizeXslForPdf(xslContent)
           );
-          htmlPages.push(html);
-          names.push(person.name);
+          const wrappedHtml = wrapHtmlForPdf(html);
+          const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+
+          // ファイル名: {名前}様_{通知書名}.pdf
+          const filename = generatePdfFilename([person.name], "7130001");
+          pdfFiles.push({ filename, buffer: pdfBuffer });
+          log(`✅ Generated: ${filename}`);
+        } catch (error) {
+          const errorMsg = `❌ Failed to convert 7130001 for ${person.name}: ${error instanceof Error ? error.message : String(error)}`;
+          log(errorMsg);
         }
-
-        // 全てのHTMLを1つのPDFにまとめる
-        const combinedHtml = combineHtmlPages(htmlPages);
-        const pdfBuffer = await generatePdfFromHtml(combinedHtml);
-
-        // ファイル名: {名前}様{他N名}_{通知書名}.pdf
-        const filename = generatePdfFilename(names, "7130001");
-        pdfFiles.push({ filename, buffer: pdfBuffer });
-        log(`✅ Generated: ${filename} (${persons.length}名)`);
-      } catch (error) {
-        const errorMsg = `❌ Failed to convert 7130001: ${error instanceof Error ? error.message : String(error)}`;
-        log(errorMsg);
       }
     }
   }
@@ -136,11 +164,11 @@ export async function convertZipToPdfZip(
         const combinedHtml = combineHtmlPages(htmlPages);
         const pdfBuffer = await generatePdfFromHtml(combinedHtml);
 
-        // ファイル名: {改定年月}_{通知書名}.pdf
+        // ファイル名: {適用年月}_{通知書名}.pdf
         // 全員の改定年月が同じと仮定して、最初の被保険者の改定年月を使用
         const filename = generatePdfFilenameFor7140001(persons[0].revisionDate, "7140001");
         pdfFiles.push({ filename, buffer: pdfBuffer });
-        log(`✅ Generated: ${filename} (${persons.length}名)`);
+        log(`✅ Generated: ${filename} (${persons.length}名を統合)`);
       } catch (error) {
         const errorMsg = `❌ Failed to convert 7140001: ${error instanceof Error ? error.message : String(error)}`;
         log(errorMsg);
@@ -158,31 +186,25 @@ export async function convertZipToPdfZip(
     const persons = extractInsuredPersonsFrom7200001(xmlContent);
 
     if (persons.length > 0) {
-      try {
-        // 複数の被保険者のHTMLを結合
-        const htmlPages: string[] = [];
-        const names: string[] = [];
-
-        for (const person of persons) {
+      // 各被保険者ごとに個別のPDFを生成
+      for (const person of persons) {
+        try {
+          log(`🔄 Processing 7200001 for: ${person.name}`);
           const html = await applyXsltTransformation(
             person.xmlContent,
             optimizeXslForPdf(xslContent)
           );
-          htmlPages.push(html);
-          names.push(person.name);
+          const wrappedHtml = wrapHtmlForPdf(html);
+          const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+
+          // ファイル名: {名前}様_{通知書名}.pdf
+          const filename = generatePdfFilename([person.name], "7200001");
+          pdfFiles.push({ filename, buffer: pdfBuffer });
+          log(`✅ Generated: ${filename}`);
+        } catch (error) {
+          const errorMsg = `❌ Failed to convert 7200001 for ${person.name}: ${error instanceof Error ? error.message : String(error)}`;
+          log(errorMsg);
         }
-
-        // 全てのHTMLを1つのPDFにまとめる
-        const combinedHtml = combineHtmlPages(htmlPages);
-        const pdfBuffer = await generatePdfFromHtml(combinedHtml);
-
-        // ファイル名: {名前}様{他N名}_{通知書名}.pdf
-        const filename = generatePdfFilename(names, "7200001");
-        pdfFiles.push({ filename, buffer: pdfBuffer });
-        log(`✅ Generated: ${filename} (${persons.length}名)`);
-      } catch (error) {
-        const errorMsg = `❌ Failed to convert 7200001: ${error instanceof Error ? error.message : String(error)}`;
-        log(errorMsg);
       }
     }
   }

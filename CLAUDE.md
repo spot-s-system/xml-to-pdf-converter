@@ -35,7 +35,14 @@ The application is configured for deployment on Render using the `render.yaml` c
 
 The conversion process follows this flow:
 1. **API Route** (`app/api/convert/route.ts`): Receives ZIP upload, extracts files (including nested ZIPs)
-2. **Document Orchestration** (`lib/zip-to-pdf.ts`): Identifies document types, orders them (kagami first, then notifications), and coordinates conversion
+2. **Document Orchestration** (`lib/zip-to-pdf.ts`):
+   - Identifies document types and orders them (kagami first, then notifications)
+   - Extracts individual person data from XML (using `xml-parser.ts`)
+   - **Social Insurance docs**:
+     - **7100001, 7130001, 7200001**: Generates individual PDF per person
+     - **7140001 (revision notice)**: Combines multiple persons into single PDF with revision date in filename
+   - **Employment Insurance docs (henrei)**: Combines multiple persons into single PDF
+   - Generates filename based on person names, revision date, and document type (using `document-names.ts`)
 3. **XSL Optimization** (`lib/xsl-adjuster.ts`): Adjusts XSL stylesheets for A4 PDF output
 4. **XSLT Transformation** (`lib/xslt-processor.ts`): Transforms XML to HTML using browser-based XSLTProcessor via Puppeteer
 5. **PDF Generation** (`lib/pdf-generator.ts`): Renders HTML to PDF using Puppeteer
@@ -58,11 +65,31 @@ For employment insurance cases with "離職票交付あり" (separation certific
 ### Document Types Supported
 
 The system recognizes and processes these Japanese government documents in order:
-- **kagami.xml**: Cover page (表紙) - always rendered first
+
+**Social Insurance Documents (社会保険)**:
+- **7100001.xml**: Enrollment confirmation & standard salary notice (資格取得確認および標準報酬決定通知書)
+  - Multiple persons → Individual PDFs: `{名前}様_{通知書名}.pdf` for each person
+  - Example: `鈴木格様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書.pdf`
+
 - **7130001.xml**: Standard salary determination notice (標準報酬決定通知書)
-- **7200001.xml**: Notice for employees aged 70+ (70歳以上被用者通知書)
-- **henrei.xml**: Return ticket (返戻票)
-- Generic XML/XSL pairs as fallback
+  - Multiple persons → Individual PDFs: `{名前}様_{通知書名}.pdf` for each person
+
+- **7140001.xml**: Standard salary revision notice (標準報酬改定通知書) ★複数名統合
+  - Multiple persons → Combined into single PDF: `{適用年月}_{通知書名}.pdf`
+  - Example: `R7年9月_健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf`
+  - ※ Multiple persons from the same revision date are combined into one PDF
+
+- **7200001.xml**: Notice for employees aged 70+ (70歳以上被用者標準報酬月額相当額決定のお知らせ)
+  - Multiple persons → Individual PDFs: `{名前}様_{通知書名}.pdf` for each person
+
+**Other Documents:**
+- **kagami.xml**: Cover page (表紙) - always rendered first
+  - Single PDF: `{事業主名}様_日本年金機構からのお知らせ.pdf`
+
+- **henrei.xml**: Return ticket/Notification (返戻のお知らせ)
+  - Multiple persons → Combined into single PDF: `{名前}様他N名_{通知書名}.pdf`
+
+- Generic XML/XSL pairs: processed as fallback for unrecognized types
 
 ### Key Technical Details
 

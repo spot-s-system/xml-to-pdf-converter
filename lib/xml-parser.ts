@@ -13,6 +13,47 @@ export interface InsuredPersonWith7140001 extends InsuredPerson {
 }
 
 /**
+ * 7100001.xml (資格取得確認および標準報酬決定通知書) から被保険者名を抽出
+ */
+export function extractInsuredPersonsFrom7100001(
+  xmlContent: string
+): InsuredPerson[] {
+  const persons: InsuredPerson[] = [];
+
+  // <_被保険者> ... </_被保険者> のブロックを全て抽出
+  const personRegex = /<_被保険者>([\s\S]*?)<\/_被保険者>/g;
+  let match;
+
+  while ((match = personRegex.exec(xmlContent)) !== null) {
+    const personBlock = match[0];
+
+    // 被保険者氏名を抽出（7100001では被保険者漢字氏名を使用）
+    const nameMatch = personBlock.match(
+      /<被保険者漢字氏名><!\[CDATA\[(.*?)\]\]><\/被保険者漢字氏名>/
+    );
+
+    if (nameMatch && nameMatch[1]) {
+      const name = nameMatch[1].trim();
+
+      // 個別のXMLを構築（ルート要素 + この被保険者のみ）
+      const individualXml = `<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="7100001.xsl"?>
+<N7100001>
+${personBlock}
+<非表示項目>非表示項目</非表示項目>
+</N7100001>`;
+
+      persons.push({
+        name,
+        xmlContent: individualXml,
+      });
+    }
+  }
+
+  return persons;
+}
+
+/**
  * 7130001.xml (標準報酬決定通知書) から被保険者名を抽出
  */
 export function extractInsuredPersonsFrom7130001(
