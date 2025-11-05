@@ -38,7 +38,7 @@ export async function convertZipToPdfZip(
   // 表紙（kagami）の処理
   // 到達番号のXMLファイルを検出（通知書以外のXML）
   const kagamiXml = Object.keys(files).find(
-    (f) => !f.includes("7130001") && !f.includes("7140001") && !f.includes("7200001") && !f.includes("henrei") && f.endsWith(".xml")
+    (f) => !f.includes("7100001") && !f.includes("7130001") && !f.includes("7140001") && !f.includes("7200001") && !f.includes("7210001") && !f.includes("henrei") && f.endsWith(".xml")
   );
 
   const kagamiXsl = Object.keys(files).find(
