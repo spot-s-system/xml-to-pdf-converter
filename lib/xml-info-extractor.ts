@@ -68,7 +68,16 @@ export function extractNoticeTitle(
     }
   }
 
-  // kagami.xmlの場合のみ<APPTITLE>を使用
+  // DOC形式の<TITLE>から抽出（kagamiの場合は<TITLE>を優先）
+  const titleMatch = xmlContent.match(/<TITLE>(.*?)<\/TITLE>/);
+  if (titleMatch) {
+    let title = titleMatch[1].trim();
+    // 「の件」を除去
+    title = title.replace(/の件$/, '').trim();
+    return title;
+  }
+
+  // kagami.xmlの場合で<TITLE>がない場合のみ<APPTITLE>を使用
   if (kagazmiXmlContent && xmlContent === kagazmiXmlContent) {
     const appTitleMatch = kagazmiXmlContent.match(
       /<APPTITLE>(.*?)<\/APPTITLE>/
@@ -76,15 +85,6 @@ export function extractNoticeTitle(
     if (appTitleMatch) {
       return appTitleMatch[1].trim();
     }
-  }
-
-  // DOC形式の<TITLE>から抽出
-  const titleMatch = xmlContent.match(/<TITLE>(.*?)<\/TITLE>/);
-  if (titleMatch) {
-    let title = titleMatch[1].trim();
-    // 「の件」を除去
-    title = title.replace(/の件$/, '').trim();
-    return title;
   }
 
   // デフォルト
