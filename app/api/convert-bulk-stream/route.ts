@@ -26,23 +26,44 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      let isControllerClosed = false;
+
       // ログ送信関数
       const sendLog = (message: string) => {
-        const data = `data: ${JSON.stringify({ log: message })}\n\n`;
-        controller.enqueue(encoder.encode(data));
+        if (isControllerClosed) return;
+        try {
+          const data = `data: ${JSON.stringify({ log: message })}\n\n`;
+          controller.enqueue(encoder.encode(data));
+        } catch (err) {
+          console.error('Failed to send log:', err);
+          isControllerClosed = true;
+        }
       };
 
       // エラー送信関数
       const sendError = (error: string) => {
-        const data = `data: ${JSON.stringify({ error })}\n\n`;
-        controller.enqueue(encoder.encode(data));
+        if (isControllerClosed) return;
+        try {
+          const data = `data: ${JSON.stringify({ error })}\n\n`;
+          controller.enqueue(encoder.encode(data));
+        } catch (err) {
+          console.error('Failed to send error:', err);
+          isControllerClosed = true;
+        }
       };
 
       // 完了送信関数
       const sendComplete = (downloadUrl?: string) => {
-        const data = `data: ${JSON.stringify({ complete: true, downloadUrl })}\n\n`;
-        controller.enqueue(encoder.encode(data));
-        controller.close();
+        if (isControllerClosed) return;
+        try {
+          const data = `data: ${JSON.stringify({ complete: true, downloadUrl })}\n\n`;
+          controller.enqueue(encoder.encode(data));
+          controller.close();
+          isControllerClosed = true;
+        } catch (err) {
+          console.error('Failed to send complete:', err);
+          isControllerClosed = true;
+        }
       };
 
       try {
@@ -183,7 +204,14 @@ export async function POST(request: NextRequest) {
           await cleanupTempDirectory(tempPath);
         }
 
-        controller.close();
+        if (!isControllerClosed) {
+          try {
+            controller.close();
+            isControllerClosed = true;
+          } catch (err) {
+            console.error('Failed to close controller:', err);
+          }
+        }
       }
     },
   });
