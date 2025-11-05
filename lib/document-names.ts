@@ -9,6 +9,7 @@ export const DOCUMENT_NAMES: { [key: string]: string } = {
   "7130001": "健康保険・厚生年金保険被保険者標準報酬決定通知書",
   "7140001": "健康保険・厚生年金保険被保険者標準報酬改定通知書",
   "7200001": "厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ",
+  "7210001": "厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ",
   "henrei": "返戻のお知らせ",
   "kagami": "日本年金機構からのお知らせ",
 };
@@ -55,9 +56,9 @@ export function generatePdfFilename(
 }
 
 /**
- * 7140001用のPDFファイル名を生成（改定年月を含む）
- * @param revisionDate 改定年月（例: "R7年9月"）
- * @param documentType 通知書番号（7140001）
+ * 7140001/7210001用のPDFファイル名を生成（改定年月を含む）
+ * @param revisionDate 改定年月（例: "R7年11月"）
+ * @param documentType 通知書番号（7140001, 7210001）
  * @returns "{改定年月}_{通知書名}.pdf"
  */
 export function generatePdfFilenameFor7140001(
@@ -66,4 +67,17 @@ export function generatePdfFilenameFor7140001(
 ): string {
   const documentName = getDocumentName(documentType);
   return `${revisionDate}_${documentName}.pdf`;
+}
+
+/**
+ * 7210001用のPDFファイル名を生成（改定年月を含む） - 7140001と同じ形式
+ * @param revisionDate 改定年月（例: "R7年11月"）
+ * @param documentType 通知書番号（7210001）
+ * @returns "{改定年月}_{通知書名}.pdf"
+ */
+export function generatePdfFilenameFor7210001(
+  revisionDate: string,
+  documentType: string
+): string {
+  return generatePdfFilenameFor7140001(revisionDate, documentType);
 }

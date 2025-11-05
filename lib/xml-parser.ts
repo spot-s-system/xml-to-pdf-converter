@@ -187,6 +187,60 @@ ${personBlock}
 }
 
 /**
+ * 7210001.xml (70歳以上被用者月額改定) から被保険者名と改定年月を抽出
+ */
+export function extractInsuredPersonsFrom7210001(
+  xmlContent: string
+): InsuredPersonWith7140001[] {
+  const persons: InsuredPersonWith7140001[] = [];
+
+  // <_被保険者> ... </_被保険者> のブロックを全て抽出
+  const personRegex = /<_被保険者>([\s\S]*?)<\/_被保険者>/g;
+  let match;
+
+  while ((match = personRegex.exec(xmlContent)) !== null) {
+    const personBlock = match[0];
+
+    // 被用者漢字氏名を抽出
+    const nameMatch = personBlock.match(
+      /<被用者漢字氏名><!\[CDATA\[(.*?)\]\]><\/被用者漢字氏名>/
+    );
+
+    // 月額改定年月を抽出
+    const eraMatch = personBlock.match(/<月額改定年月_元号><!\[CDATA\[(.*?)\]\]><\/月額改定年月_元号>/);
+    const yearMatch = personBlock.match(/<月額改定年月_年><!\[CDATA\[\s*(\d+)\]\]><\/月額改定年月_年>/);
+    const monthMatch = personBlock.match(/<月額改定年月_月>(\d+)<\/月額改定年月_月>/);
+
+    if (nameMatch && nameMatch[1] && eraMatch && yearMatch && monthMatch) {
+      const name = nameMatch[1].trim();
+      const era = eraMatch[1].trim();
+      const year = parseInt(yearMatch[1].trim(), 10);
+      const month = parseInt(monthMatch[1].trim(), 10);
+
+      // 元号を短縮形に変換
+      const eraShort = era === "令和" ? "R" : era === "平成" ? "H" : era === "昭和" ? "S" : era;
+      const revisionDate = `${eraShort}${year}年${month}月`;
+
+      // 個別のXMLを構築
+      const individualXml = `<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="7210001.xsl"?>
+<N7210001>
+${personBlock}
+<非表示項目>非表示項目</非表示項目>
+</N7210001>`;
+
+      persons.push({
+        name,
+        revisionDate,
+        xmlContent: individualXml,
+      });
+    }
+  }
+
+  return persons;
+}
+
+/**
  * henrei.xml (返戻票) から被保険者名を抽出
  */
 export function extractInsuredPersonsFromHenrei(

@@ -40,7 +40,7 @@ The conversion process follows this flow:
    - Extracts individual person data from XML (using `xml-parser.ts`)
    - **Social Insurance docs**:
      - **7100001, 7130001, 7200001**: Generates individual PDF per person
-     - **7140001 (revision notice)**: Combines multiple persons into single PDF with revision date in filename
+     - **7140001, 7210001 (revision notices)**: Combines multiple persons into single PDF with revision date in filename
    - **Employment Insurance docs (henrei)**: Combines multiple persons into single PDF
    - Generates filename based on person names, revision date, and document type (using `document-names.ts`)
 3. **XSL Optimization** (`lib/xsl-adjuster.ts`): Adjusts XSL stylesheets for A4 PDF output
@@ -81,6 +81,11 @@ The system recognizes and processes these Japanese government documents in order
 
 - **7200001.xml**: Notice for employees aged 70+ (70歳以上被用者標準報酬月額相当額決定のお知らせ)
   - Multiple persons → Individual PDFs: `{名前}様_{通知書名}.pdf` for each person
+
+- **7210001.xml**: Salary revision notice for employees aged 70+ (70歳以上被用者月額改定通知) ★複数名統合
+  - Multiple persons → Combined into single PDF: `{改定年月}_{通知書名}.pdf`
+  - Example: `R7年11月_厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ.pdf`
+  - ※ Multiple persons from the same revision date are combined into one PDF
 
 **Other Documents:**
 - **kagami.xml**: Cover page (表紙) - always rendered first

@@ -6,10 +6,11 @@ import {
   extractInsuredPersonsFrom7130001,
   extractInsuredPersonsFrom7140001,
   extractInsuredPersonsFrom7200001,
+  extractInsuredPersonsFrom7210001,
   extractInsuredPersonsFromHenrei,
   extractBusinessOwnerFromKagami,
 } from "./xml-parser";
-import { generatePdfFilename, generatePdfFilenameFor7140001 } from "./document-names";
+import { generatePdfFilename, generatePdfFilenameFor7140001, generatePdfFilenameFor7210001 } from "./document-names";
 import JSZip from "jszip";
 
 interface ExtractedFiles {
@@ -205,6 +206,44 @@ export async function convertZipToPdfZip(
           const errorMsg = `❌ Failed to convert 7200001 for ${person.name}: ${error instanceof Error ? error.message : String(error)}`;
           log(errorMsg);
         }
+      }
+    }
+  }
+
+  // 7210001.xml (70歳以上被用者月額改定) の処理
+  const xml7210001 = Object.keys(files).find((f) => /7210001\.xml$/i.test(f));
+  const xsl7210001 = Object.keys(files).find((f) => /7210001\.xsl$/i.test(f));
+
+  if (xml7210001 && xsl7210001) {
+    const xmlContent = files[xml7210001] as string;
+    const xslContent = files[xsl7210001] as string;
+    const persons = extractInsuredPersonsFrom7210001(xmlContent);
+
+    if (persons.length > 0) {
+      try {
+        // 複数の被保険者のHTMLを結合
+        const htmlPages: string[] = [];
+
+        for (const person of persons) {
+          const html = await applyXsltTransformation(
+            person.xmlContent,
+            optimizeXslForPdf(xslContent)
+          );
+          htmlPages.push(html);
+        }
+
+        // 全てのHTMLを1つのPDFにまとめる
+        const combinedHtml = combineHtmlPages(htmlPages);
+        const pdfBuffer = await generatePdfFromHtml(combinedHtml);
+
+        // ファイル名: {改定年月}_{通知書名}.pdf
+        // 全員の改定年月が同じと仮定して、最初の被保険者の改定年月を使用
+        const filename = generatePdfFilenameFor7210001(persons[0].revisionDate, "7210001");
+        pdfFiles.push({ filename, buffer: pdfBuffer });
+        log(`✅ Generated: ${filename} (${persons.length}名を統合)`);
+      } catch (error) {
+        const errorMsg = `❌ Failed to convert 7210001: ${error instanceof Error ? error.message : String(error)}`;
+        log(errorMsg);
       }
     }
   }
