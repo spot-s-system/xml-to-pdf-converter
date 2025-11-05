@@ -149,27 +149,36 @@ export function extractFromSocialInsurance(
     // N7210001の場合は月額改定年月を使用
     const rootTagMatch = xmlContent.match(/<(N7210001)[\s>]/);
     if (rootTagMatch) {
-      const eraMatch = xmlContent.match(/<月額改定年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/月額改定年月_元号>/);
-      const yearMatch = xmlContent.match(/<月額改定年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/月額改定年月_年>/);
-      const monthMatch = xmlContent.match(/<月額改定年月_月>(\d+)<\/月額改定年月_月>/);
+      // 70歳以上被用者の場合は被保険者ブロックから抽出
+      const firstInsurerBlock = xmlContent.match(/<_被保険者>[\s\S]*?<\/_被保険者>/);
+      if (firstInsurerBlock) {
+        const block = firstInsurerBlock[0];
+        const eraMatch = block.match(/<月額改定年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/月額改定年月_元号>/);
+        const yearMatch = block.match(/<月額改定年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/月額改定年月_年>/);
+        const monthMatch = block.match(/<月額改定年月_月>(\d+)<\/月額改定年月_月>/);
 
-      if (eraMatch && yearMatch && monthMatch) {
-        const era = convertEraCode(eraMatch[1]);
-        const year = yearMatch[1].padStart(2, '0');
-        const month = monthMatch[1].padStart(2, '0');
-        info.revisionDate = `${era}${year}年${month}月`;
+        if (eraMatch && yearMatch && monthMatch) {
+          const era = convertEraCode(eraMatch[1]);
+          const year = yearMatch[1].padStart(2, '0');
+          const month = monthMatch[1].padStart(2, '0');
+          info.revisionDate = `${era}${year}年${month}月`;
+        }
       }
     } else {
-      // 通常の改定年月を使用
-      const eraMatch = xmlContent.match(/<改定年月_元号>(.*?)<\/改定年月_元号>/);
-      const yearMatch = xmlContent.match(/<改定年月_年>(.*?)<\/改定年月_年>/);
-      const monthMatch = xmlContent.match(/<改定年月_月>(.*?)<\/改定年月_月>/);
+      // N7140001など通常の月額変更の場合も被保険者ブロックから抽出
+      const firstInsurerBlock = xmlContent.match(/<_被保険者>[\s\S]*?<\/_被保険者>/);
+      if (firstInsurerBlock) {
+        const block = firstInsurerBlock[0];
+        const eraMatch = block.match(/<改定年月_元号>(.*?)<\/改定年月_元号>/);
+        const yearMatch = block.match(/<改定年月_年>(.*?)<\/改定年月_年>/);
+        const monthMatch = block.match(/<改定年月_月>(.*?)<\/改定年月_月>/);
 
-      if (eraMatch && yearMatch && monthMatch) {
-        const era = convertEraCode(eraMatch[1]);
-        const year = yearMatch[1].padStart(2, '0');
-        const month = monthMatch[1].padStart(2, '0');
-        info.revisionDate = `${era}${year}年${month}月`;
+        if (eraMatch && yearMatch && monthMatch) {
+          const era = convertEraCode(eraMatch[1]);
+          const year = yearMatch[1].padStart(2, '0');
+          const month = monthMatch[1].padStart(2, '0');
+          info.revisionDate = `${era}${year}年${month}月`;
+        }
       }
     }
   }
