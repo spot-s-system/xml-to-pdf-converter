@@ -121,12 +121,67 @@ export async function analyzeFolderStructure(
     }
   }
 
+  // 1.5. ルートレベルのネストされたZIPファイルを処理
+  const rootZipFiles = rootFiles.filter((file) => path.extname(file).toLowerCase() === '.zip');
+
+  for (const zipFile of rootZipFiles) {
+    const zipPath = path.join(extractPath, zipFile);
+    const zipBuffer = await fs.readFile(zipPath);
+
+    try {
+      // ZIPを展開
+      const nestedZip = await JSZip.loadAsync(zipBuffer);
+      const tempNestedPath = await fs.mkdtemp(path.join(tmpdir(), 'nested-root-'));
+
+      // ファイルを展開
+      const nestedFiles: string[] = [];
+      for (const [relativePath, zipEntry] of Object.entries(nestedZip.files)) {
+        if (!zipEntry.dir) {
+          const content = await zipEntry.async('nodebuffer');
+          const targetPath = path.join(tempNestedPath, path.basename(relativePath));
+          await fs.writeFile(targetPath, content);
+          nestedFiles.push(path.basename(relativePath));
+        }
+      }
+
+      // ドキュメントペアを検出
+      const documents = await detectDocumentPairs(tempNestedPath, nestedFiles);
+
+      if (documents.length > 0) {
+        const xmlXslFiles = nestedFiles.filter((file) => {
+          const ext = path.extname(file).toLowerCase();
+          return ext === '.xml' || ext === '.xsl';
+        });
+
+        const otherFiles = nestedFiles.filter((file) => {
+          const ext = path.extname(file).toLowerCase();
+          return ext !== '.xml' && ext !== '.xsl';
+        });
+
+        // ZIPファイル名（拡張子なし）をフォルダ名として使用
+        const folderName = path.basename(zipFile, '.zip');
+
+        folders.push({
+          folderName,
+          folderPath: tempNestedPath,
+          documents,
+          xmlXslFiles,
+          otherFiles,
+        });
+
+        logIndent(`Extracted nested ZIP at root: ${zipFile}`, 1, '📦');
+      }
+    } catch (error) {
+      logIndent(`Failed to process nested ZIP ${zipFile}: ${error}`, 1, '⚠️');
+    }
+  }
+
   // 2. ディレクトリの処理
   const directories = entries.filter(e => e.isDirectory());
 
-  // 数字4桁で始まるフォルダを処理（既存の処理）
+  // 数字で始まるフォルダを処理（アンダースコア有無は問わない）
   for (const entry of directories) {
-    if (/^\d{4}_/.test(entry.name)) {
+    if (/^\d/.test(entry.name)) {
       const folderPath = path.join(extractPath, entry.name);
       const files = await fs.readdir(folderPath);
 
