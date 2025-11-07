@@ -66,7 +66,7 @@ export function adjustXslForA4(xslContent: string): string {
   if (adjustedXsl.match(/<\/STYLE>/i)) {
     adjustedXsl = adjustedXsl.replace(
       /<\/STYLE>/i,
-      `${pageStyles}</STYLE>`
+      `${pageStyles}</style>`
     );
   } else {
     adjustedXsl = adjustedXsl.replace(
@@ -93,8 +93,17 @@ export function fixHtmlTags(xslContent: string): string {
   // Fix other common HTML tags that should be self-closing
   const selfClosingTags = ['br', 'hr', 'img', 'input', 'link'];
   selfClosingTags.forEach(tag => {
-    const pattern = new RegExp(`<${tag}\\s+([^>]+?)(?:\\s*\\/)?>`,'gi');
-    fixed = fixed.replace(pattern, `<${tag} $1 />`);
+    // 包括的なパターン: <br />, <br/>, <br>, <br attr="...">, <br attr="..." />
+    // 全てを統一フォーマットに: <br /> または <br attr="..." />
+    // [^/>] を使って属性が / で終わらないようにする
+    const pattern = new RegExp(`<${tag}(\\s+[^/>][^>]*?)?\\s*\\/?>`, 'gi');
+    fixed = fixed.replace(pattern, (_match, attrs) => {
+      if (attrs && attrs.trim()) {
+        return `<${tag}${attrs} />`;
+      } else {
+        return `<${tag} />`;
+      }
+    });
   });
 
   return fixed;
@@ -174,7 +183,7 @@ export function addPreTextWrapping(xslContent: string): string {
   if (adjusted.match(/<\/STYLE>/i)) {
     adjusted = adjusted.replace(
       /<\/STYLE>/i,
-      `${preStyles}</STYLE>`
+      `${preStyles}</style>`
     );
   } else {
     adjusted = adjusted.replace(
