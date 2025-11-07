@@ -716,10 +716,8 @@ export async function createResultZip(
       // 元のXML/XSLファイルをコピー
       if (folder.xmlXslFiles) {
         for (const fileName of folder.xmlXslFiles) {
-          // rootフォルダの場合は extractPath 直下、それ以外は subfolder から読み込む
-          const sourcePath = isRootFolder
-            ? path.join(extractPath, fileName)
-            : path.join(extractPath, folder.folderName, fileName);
+          // folderPathを使用（ネストされたZIPの一時ディレクトリにも対応）
+          const sourcePath = path.join(folder.folderPath, fileName);
 
           try {
             const fileBuffer = await fs.readFile(sourcePath);
@@ -733,10 +731,8 @@ export async function createResultZip(
       // その他のファイルをコピー（PDFはリネーム処理を適用）
       if (folder.otherFiles) {
         for (const fileName of folder.otherFiles) {
-          // rootフォルダの場合は extractPath 直下、それ以外は subfolder から読み込む
-          const sourcePath = isRootFolder
-            ? path.join(extractPath, fileName)
-            : path.join(extractPath, folder.folderName, fileName);
+          // folderPathを使用（ネストされたZIPの一時ディレクトリにも対応）
+          const sourcePath = path.join(folder.folderPath, fileName);
 
           try {
             const fileBuffer = await fs.readFile(sourcePath);
