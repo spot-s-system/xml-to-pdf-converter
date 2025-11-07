@@ -24,11 +24,38 @@ interface PdfFile {
 
 type LogCallback = (message: string) => void;
 
+/**
+ * XMLからXSLファイル名を抽出
+ */
+function extractXslFilename(xmlContent: string): string | null {
+  // xml-stylesheet processing instructionから抽出
+  const stylesheetMatch = xmlContent.match(/<\?xml-stylesheet[^>]+href="([^"]+)"/);
+  if (stylesheetMatch && stylesheetMatch[1]) {
+    return stylesheetMatch[1];
+  }
+
+  // <STYLESHEET>タグから抽出
+  const tagMatch = xmlContent.match(/<STYLESHEET>([^<]+)<\/STYLESHEET>/);
+  if (tagMatch && tagMatch[1]) {
+    return tagMatch[1];
+  }
+
+  return null;
+}
+
+/**
+ * ファイル名からディレクトリパスを除去
+ */
+function getBasename(filepath: string): string {
+  return filepath.split('/').pop() || filepath;
+}
+
 export async function convertZipToPdfZip(
   files: ExtractedFiles,
   onLog?: LogCallback
 ): Promise<Buffer> {
   const pdfFiles: PdfFile[] = [];
+  const processedXmlFiles = new Set<string>(); // 処理済みXMLファイルを記録
 
   const log = (message: string) => {
     console.log(message);
@@ -38,7 +65,7 @@ export async function convertZipToPdfZip(
   // 表紙（kagami）の処理
   // 到達番号のXMLファイルを検出（通知書以外のXML）
   const kagamiXml = Object.keys(files).find(
-    (f) => !f.includes("7100001") && !f.includes("7130001") && !f.includes("7140001") && !f.includes("7200001") && !f.includes("7210001") && !f.includes("henrei") && f.endsWith(".xml")
+    (f) => !f.includes("7100001") && !f.includes("7130001") && !f.includes("7140001") && !f.includes("7150001") && !f.includes("7160001") && !f.includes("7200001") && !f.includes("7210001") && !f.includes("henrei") && f.endsWith(".xml")
   );
 
   const kagamiXsl = Object.keys(files).find(
@@ -65,6 +92,7 @@ export async function convertZipToPdfZip(
       const filename = generatePdfFilename([businessOwner], "kagami");
 
       pdfFiles.push({ filename, buffer: pdfBuffer });
+      processedXmlFiles.add(kagamiXml); // 処理済みとして記録
       log(`✅ Generated: ${filename}`);
     } catch (error) {
       const errorMsg = `❌ Failed to convert ${kagamiXml}: ${error instanceof Error ? error.message : String(error)}`;
@@ -103,6 +131,7 @@ export async function convertZipToPdfZip(
           log(errorMsg);
         }
       }
+      processedXmlFiles.add(xml7100001); // 処理済みとして記録
     }
   }
 
@@ -136,6 +165,7 @@ export async function convertZipToPdfZip(
           log(errorMsg);
         }
       }
+      processedXmlFiles.add(xml7130001); // 処理済みとして記録
     }
   }
 
@@ -169,6 +199,7 @@ export async function convertZipToPdfZip(
         // 全員の改定年月が同じと仮定して、最初の被保険者の改定年月を使用
         const filename = generatePdfFilenameFor7140001(persons[0].revisionDate, "7140001");
         pdfFiles.push({ filename, buffer: pdfBuffer });
+        processedXmlFiles.add(xml7140001); // 処理済みとして記録
         log(`✅ Generated: ${filename} (${persons.length}名を統合)`);
       } catch (error) {
         const errorMsg = `❌ Failed to convert 7140001: ${error instanceof Error ? error.message : String(error)}`;
@@ -207,6 +238,7 @@ export async function convertZipToPdfZip(
           log(errorMsg);
         }
       }
+      processedXmlFiles.add(xml7200001); // 処理済みとして記録
     }
   }
 
@@ -240,6 +272,7 @@ export async function convertZipToPdfZip(
         // 全員の改定年月が同じと仮定して、最初の被保険者の改定年月を使用
         const filename = generatePdfFilenameFor7210001(persons[0].revisionDate, "7210001");
         pdfFiles.push({ filename, buffer: pdfBuffer });
+        processedXmlFiles.add(xml7210001); // 処理済みとして記録
         log(`✅ Generated: ${filename} (${persons.length}名を統合)`);
       } catch (error) {
         const errorMsg = `❌ Failed to convert 7210001: ${error instanceof Error ? error.message : String(error)}`;
@@ -279,11 +312,76 @@ export async function convertZipToPdfZip(
         // ファイル名: {名前}様{他N名}_{通知書名}.pdf
         const filename = generatePdfFilename(names, "henrei");
         pdfFiles.push({ filename, buffer: pdfBuffer });
+        processedXmlFiles.add(xmlHenrei); // 処理済みとして記録
         log(`✅ Generated: ${filename} (${persons.length}名)`);
       } catch (error) {
         const errorMsg = `❌ Failed to convert henrei: ${error instanceof Error ? error.message : String(error)}`;
         log(errorMsg);
       }
+    }
+  }
+
+  // 汎用的なXML/XSLペアの処理（まだ処理されていないXMLファイル）
+  log(`\n🔍 Scanning for unprocessed XML/XSL pairs...`);
+
+  const allXmlFiles = Object.keys(files).filter((f) => f.endsWith(".xml"));
+  const unprocessedXmlFiles = allXmlFiles.filter((f) => !processedXmlFiles.has(f));
+
+  log(`📊 Found ${unprocessedXmlFiles.length} unprocessed XML files`);
+
+  for (const xmlFile of unprocessedXmlFiles) {
+    const xmlContent = files[xmlFile] as string;
+
+    // XMLからXSLファイル名を抽出
+    const xslFilename = extractXslFilename(xmlContent);
+
+    if (!xslFilename) {
+      log(`⚠️  Skipping ${xmlFile}: No XSL reference found`);
+      continue;
+    }
+
+    // XSLファイルを検索（同じディレクトリ内またはルート）
+    const xmlDir = xmlFile.includes('/') ? xmlFile.substring(0, xmlFile.lastIndexOf('/') + 1) : '';
+    const possibleXslPaths = [
+      xmlDir + xslFilename,  // 同じディレクトリ
+      xslFilename,           // ルートディレクトリ
+    ];
+
+    let xslFile: string | null = null;
+    for (const path of possibleXslPaths) {
+      if (files[path]) {
+        xslFile = path;
+        break;
+      }
+    }
+
+    if (!xslFile) {
+      log(`⚠️  Skipping ${xmlFile}: XSL file not found (${xslFilename})`);
+      continue;
+    }
+
+    try {
+      log(`🔄 Processing generic XML/XSL pair: ${xmlFile}`);
+      const xslContent = files[xslFile] as string;
+
+      const html = await applyXsltTransformation(
+        xmlContent,
+        optimizeXslForPdf(xslContent)
+      );
+      const wrappedHtml = wrapHtmlForPdf(html);
+      const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
+
+      // ファイル名: XMLファイル名から.xmlを除いて.pdfに変更
+      const baseFilename = getBasename(xmlFile).replace(/\.xml$/i, '');
+      const filename = `${baseFilename}.pdf`;
+
+      pdfFiles.push({ filename, buffer: pdfBuffer });
+      processedXmlFiles.add(xmlFile);
+      log(`✅ Generated: ${filename}`);
+    } catch (error) {
+      const errorMsg = `❌ Failed to convert ${xmlFile}: ${error instanceof Error ? error.message : String(error)}`;
+      log(errorMsg);
+      console.error(`Stack trace:`, error instanceof Error ? error.stack : "");
     }
   }
 

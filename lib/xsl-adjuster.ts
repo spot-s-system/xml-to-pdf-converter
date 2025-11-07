@@ -77,25 +77,6 @@ export function adjustXslForA4(xslContent: string): string {
 
   return adjustedXsl;
 }
-
-/**
- * Adjusts font sizes proportionally
- */
-export function adjustFontSizes(xslContent: string, scaleFactor = 1.2): string {
-  let adjustedXsl = xslContent;
-
-  // Match font-size declarations
-  const fontSizePattern = /font-size\s*:\s*(\d+)px/gi;
-
-  adjustedXsl = adjustedXsl.replace(fontSizePattern, (match, size) => {
-    const originalSize = parseInt(size, 10);
-    const newSize = Math.round(originalSize * scaleFactor);
-    return `font-size: ${newSize}px`;
-  });
-
-  return adjustedXsl;
-}
-
 /**
  * Fix HTML tags in XSL to be XML-compliant
  */
@@ -206,6 +187,47 @@ export function addPreTextWrapping(xslContent: string): string {
 }
 
 /**
+ * Normalize all HTML tag case to lowercase for XML compliance
+ */
+function normalizeAllHtmlTags(content: string): string {
+  // 包括的なHTMLタグのリスト
+  const htmlTags = [
+    'html', 'head', 'body', 'title', 'style', 'script', 'meta', 'link',
+    'div', 'span', 'p', 'a', 'img', 'br', 'hr',
+    'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption', 'col', 'colgroup',
+    'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+    'form', 'input', 'textarea', 'button', 'select', 'option', 'label', 'fieldset', 'legend',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'strong', 'em', 'b', 'i', 'u', 's', 'small', 'mark', 'del', 'ins', 'sub', 'sup',
+    'pre', 'code', 'blockquote', 'cite', 'q',
+    'iframe', 'embed', 'object', 'param', 'video', 'audio', 'source', 'track', 'canvas',
+    'header', 'footer', 'nav', 'section', 'article', 'aside', 'main', 'figure', 'figcaption',
+    'details', 'summary', 'dialog', 'menu', 'menuitem'
+  ];
+
+  let normalized = content;
+
+  // 各タグについて、大文字小文字を問わず小文字に統一
+  // より確実なマッチングのため、エスケープして正規表現を作成
+  for (const tag of htmlTags) {
+    // 開始タグ: <TAG>, <TAG >, <TAG attr="...">
+    // 大文字小文字を区別しない全体マッチング
+    const openTagPattern = new RegExp(`<(${tag})(\\s|>|/)`, 'gi');
+    const closeTagPattern = new RegExp(`</(${tag})>`, 'gi');
+
+    normalized = normalized.replace(openTagPattern, (_fullMatch, _tagName, after) => {
+      return `<${tag.toLowerCase()}${after}`;
+    });
+
+    normalized = normalized.replace(closeTagPattern, () => {
+      return `</${tag.toLowerCase()}>`;
+    });
+  }
+
+  return normalized;
+}
+
+/**
  * Main function to optimize XSL for PDF output
  * Scales to A4 size and preserves original layout proportions
  */
@@ -215,29 +237,14 @@ export function optimizeXslForPdf(xslContent: string): string {
   // Step 1: Fix HTML tags to be XML-compliant BEFORE normalization
   optimized = fixHtmlTags(optimized);
 
-  // Step 2: Apply A4 scaling to fit the page properly
+  // Step 2: Normalize ALL HTML tags to lowercase (包括的な正規化)
+  optimized = normalizeAllHtmlTags(optimized);
+
+  // Step 3: Apply A4 scaling to fit the page properly
   optimized = adjustXslForA4(optimized);
 
-  // Step 3: Add text wrapping for pre tags
+  // Step 4: Add text wrapping for pre tags
   optimized = addPreTextWrapping(optimized);
-
-  // Step 4: Normalize HTML tag case AFTER all modifications
-  optimized = optimized.replace(/<(\/?)HTML>/gi, '<$1html>');
-  optimized = optimized.replace(/<(\/?)HEAD>/gi, '<$1head>');
-  optimized = optimized.replace(/<(\/?)BODY>/gi, '<$1body>');
-  optimized = optimized.replace(/<(\/?)TITLE>/gi, '<$1title>');
-  optimized = optimized.replace(/<(\/?)STYLE>/gi, '<$1style>');
-  optimized = optimized.replace(/<(\/?)SCRIPT>/gi, '<$1script>');
-  optimized = optimized.replace(/<(\/?)DIV>/gi, '<$1div>');
-  optimized = optimized.replace(/<(\/?)TABLE>/gi, '<$1table>');
-  optimized = optimized.replace(/<(\/?)TR>/gi, '<$1tr>');
-  optimized = optimized.replace(/<(\/?)TD>/gi, '<$1td>');
-  optimized = optimized.replace(/<(\/?)TH>/gi, '<$1th>');
-  optimized = optimized.replace(/<(\/?)TBODY>/gi, '<$1tbody>');
-  optimized = optimized.replace(/<(\/?)THEAD>/gi, '<$1thead>');
-  optimized = optimized.replace(/<(\/?)SPAN>/gi, '<$1span>');
-  optimized = optimized.replace(/<(\/?)PRE>/gi, '<$1pre>');
-  optimized = optimized.replace(/<(\/?)FORM>/gi, '<$1form>');
 
   // Step 5: Add meta tags after <head>
   optimized = optimized.replace(
