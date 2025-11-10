@@ -1,4 +1,5 @@
 services:
+  # 社内用サービス（既存）
   - type: web
     name: xml-to-pdf-converter
     runtime: docker
@@ -10,3 +11,20 @@ services:
         value: production
       - key: MAX_REQUESTS_PER_BROWSER
         value: "30"  # Lower limit for free tier to prevent memory issues
+      - key: ENVIRONMENT
+        value: internal
+
+  # 社外用サービス（新規）
+  - type: web
+    name: xml-to-pdf-converter-external
+    runtime: docker
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MAX_REQUESTS_PER_BROWSER
+        value: "30"  # Lower limit for free tier to prevent memory issues
+      - key: ENVIRONMENT
+        value: external
