@@ -46,6 +46,7 @@ export interface GeneratedPdf {
 
 export interface ProcessedFolder {
   folderName: string;
+  folderPath: string; // フォルダの実際のパス（ネストされたZIPの一時ディレクトリにも対応）
   success: boolean;
   pdfs?: GeneratedPdf[];
   xmlXslFiles?: string[];
@@ -471,6 +472,7 @@ export async function processFolders(
 
       results.push({
         folderName: folder.folderName,
+        folderPath: folder.folderPath,
         success: true,
         pdfs,
         xmlXslFiles: folder.xmlXslFiles,
@@ -484,6 +486,7 @@ export async function processFolders(
 
       results.push({
         folderName: folder.folderName,
+        folderPath: folder.folderPath,
         success: false,
         error: error instanceof Error ? error.message : '不明なエラー',
       });

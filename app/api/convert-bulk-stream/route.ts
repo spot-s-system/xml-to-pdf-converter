@@ -158,6 +158,7 @@ export async function POST(request: NextRequest) {
             sendLog(`${folderProgress} ❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
             processedFolders.push({
               folderName: folder.folderName,
+              folderPath: folder.folderPath,
               success: false,
               error: error instanceof Error ? error.message : 'Unknown error',
             });
