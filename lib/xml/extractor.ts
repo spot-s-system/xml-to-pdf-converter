@@ -308,7 +308,7 @@ export function extractNamingInfo(
     info = { ...info, ...extractFromDataRoot(xmlContent) };
   } else if (xmlContent.includes('<DOC')) {
     info = { ...info, ...extractFromEmploymentInsurance(xmlContent) };
-  } else if (xmlContent.match(/<N7\d{5}>/)) {
+  } else if (xmlContent.match(/<N7\d{6}>/)) {
     info = { ...info, ...extractFromSocialInsurance(xmlContent, procedureType) };
   }
 

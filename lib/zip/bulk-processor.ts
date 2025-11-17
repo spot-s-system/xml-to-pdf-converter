@@ -566,10 +566,10 @@ async function processFolderDocuments(
     if (
       procedureInfo.pdfStrategy === 'individual' &&
       namingInfo.allInsurers &&
-      namingInfo.allInsurers.length > 1
+      namingInfo.allInsurers.length >= 1
     ) {
-      // 個別PDF生成（取得・喪失で複数人の場合）
-      logIndent(`Generating ${namingInfo.allInsurers.length} individual PDFs...`, 3);
+      // 個別PDF生成（取得・喪失の場合）
+      logIndent(`Generating ${namingInfo.allInsurers.length} individual PDF(s)...`, 3);
 
       // 各被保険者のブロックを抽出
       const insurerBlocks = xmlContent.match(
@@ -590,8 +590,11 @@ async function processFolderDocuments(
           // XSLT変換
           const html = await applyXsltTransformation(individualXml, optimizeXslForPdf(xslContent));
 
+          // HTMLをPDF用にラップ
+          const wrappedHtml = wrapHtmlForPdf(html);
+
           // PDF生成
-          const pdfBuffer = await generatePdfFromHtml(html);
+          const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
 
           // 個別PDFファイル名を生成
           const pdfFileName = generateIndividualPdfFileName(
@@ -616,7 +619,8 @@ async function processFolderDocuments(
           namingInfo
         );
         const html = await applyXsltTransformation(xmlContent, optimizeXslForPdf(xslContent));
-        const pdfBuffer = await generatePdfFromHtml(html);
+        const wrappedHtml = wrapHtmlForPdf(html);
+        const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
         pdfs.push({
           name: pdfFileName,
           buffer: pdfBuffer,
@@ -634,8 +638,11 @@ async function processFolderDocuments(
       // XSLT変換
       const html = await applyXsltTransformation(xmlContent, optimizeXslForPdf(xslContent));
 
+      // HTMLをPDF用にラップ
+      const wrappedHtml = wrapHtmlForPdf(html);
+
       // PDF生成
-      const pdfBuffer = await generatePdfFromHtml(html);
+      const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
 
       pdfs.push({
         name: pdfFileName,
@@ -797,4 +804,26 @@ export async function cleanupTempDirectory(tempPath: string): Promise<void> {
   } catch (error) {
     console.error(`Failed to cleanup temp directory ${tempPath}:`, error);
   }
+}
+
+/**
+ * HTMLを1ページ用にラップ（最小限の調整）
+ */
+function wrapHtmlForPdf(html: string): string {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+    ${html}
+    <script>
+        window.addEventListener('load', () => {
+            window.scalingComplete = true;
+        });
+    </script>
+</body>
+</html>`;
 }
