@@ -460,7 +460,7 @@ function combineHtmlPages(htmlPages: string[]): string {
 }
 
 /**
- * HTMLを1ページ用にラップ
+ * HTMLを1ページ用にラップ（最小限の調整）
  */
 function wrapHtmlForPdf(html: string): string {
   return `
@@ -469,32 +469,9 @@ function wrapHtmlForPdf(html: string): string {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * {
-            box-sizing: border-box;
-        }
-        body {
-            margin: 0;
-            padding: 20px;
-            font-family: "MS Gothic", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        @page {
-            size: A4;
-            margin: 5mm 10mm;
-        }
-        /* 1ページに収める - page-break-inside削除 */
-        .document-container {
-            margin: 0 auto;
-        }
-    </style>
 </head>
 <body>
-    <div class="document-container">
-        ${html}
-    </div>
+    ${html}
     <script>
         window.addEventListener('load', () => {
             window.scalingComplete = true;
