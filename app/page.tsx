@@ -152,7 +152,7 @@ export default function Home() {
           <CardHeader>
             <CardTitle>ZIPファイルアップロード</CardTitle>
             <CardDescription>
-              XML/XSLファイルを含むZIPファイルをアップロードしてください
+              必ずOfficeStationより一括取得したzipをアップロードしてください。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
