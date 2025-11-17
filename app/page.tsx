@@ -275,7 +275,7 @@ export default function Home() {
                   <li>• 資格取得確認通知書 (7100001.xml) → 個人毎に {'{名前}様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書.pdf'}</li>
                   <li>• 標準報酬決定通知書 (7130001.xml) → 個人毎に {'{名前}様_標準報酬決定通知書.pdf'}</li>
                   <li>• ★標準報酬改定通知書 (7140001.xml) → 複数名を統合 {'{適用年月}_{通知書名}.pdf'}</li>
-                  <li className="text-xs text-gray-600 dark:text-gray-400 ml-4">例: R7年9月_健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf</li>
+                  <li className="text-xs text-gray-600 dark:text-gray-400 ml-4">例: R7年9月_健康保険・厚生年金保険標準報酬改定通知書.pdf</li>
                   <li>• 70歳以上被用者通知 (7200001.xml) → 個人毎に {'{名前}様_厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ.pdf'}</li>
                   <li>• ★70歳以上被用者月額改定通知 (7210001.xml) → 複数名を統合 {'{改定年月}_{通知書名}.pdf'}</li>
                   <li className="text-xs text-gray-600 dark:text-gray-400 ml-4">例: R7年11月_厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ.pdf</li>

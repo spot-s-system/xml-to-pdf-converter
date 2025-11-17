@@ -45,7 +45,8 @@ export function detectProcedureType(xmlContent: string): ProcedureInfo {
   if (socialInsurancePatterns[rootTag]) {
     const type = socialInsurancePatterns[rootTag];
     // 社会保険：取得・喪失は個別PDF、それ以外は連結PDF
-    const pdfStrategy = (type === '取得' || type === '喪失') ? 'individual' : 'combined';
+    // ただし、N7210001（70歳以上被用者月額改定）は個別PDF
+    const pdfStrategy = (type === '取得' || type === '喪失' || rootTag === 'N7210001') ? 'individual' : 'combined';
     return {
       type,
       category: '社会保険',

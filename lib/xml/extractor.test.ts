@@ -206,13 +206,13 @@ describe('extractNoticeTitle', () => {
   it('N7140001の場合、正しい通知書名を返す', () => {
     const xmlContent = '<N7140001>...</N7140001>';
     const result = extractNoticeTitle(xmlContent);
-    expect(result).toBe('健康保険・厚生年金保険被保険者標準報酬改定通知書');
+    expect(result).toBe('健康保険・厚生年金保険標準報酬改定通知書');
   });
 
   it('N7200001の場合、正しい通知書名を返す', () => {
     const xmlContent = '<N7200001>...</N7200001>';
     const result = extractNoticeTitle(xmlContent);
-    expect(result).toBe('厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ');
+    expect(result).toBe('厚生年金保険70歳以上被用者該当および標準報酬月額相当額のお知らせ');
   });
 
   it('N7210001の場合、正しい通知書名を返す', () => {
@@ -293,7 +293,7 @@ describe('extractNamingInfo', () => {
 
     const result = extractNamingInfo(xmlContent, '月額変更');
 
-    expect(result.noticeTitle).toBe('健康保険・厚生年金保険被保険者標準報酬改定通知書');
+    expect(result.noticeTitle).toBe('健康保険・厚生年金保険標準報酬改定通知書');
     expect(result.revisionDate).toBe('R07年09月');
     expect(result.insurerCount).toBe(2);
   });

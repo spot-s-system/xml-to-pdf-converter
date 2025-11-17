@@ -50,7 +50,7 @@ describe('detectProcedureType', () => {
 
       expect(result.type).toBe('月額変更');
       expect(result.category).toBe('社会保険');
-      expect(result.pdfStrategy).toBe('combined');
+      expect(result.pdfStrategy).toBe('individual');
     });
 
     it('N7150001 (算定基礎届) を正しく判定する', () => {
@@ -169,12 +169,13 @@ describe('detectProcedureType', () => {
   });
 
   describe('PDF生成戦略', () => {
-    it('取得・喪失は individual 戦略になる', () => {
+    it('取得・喪失・N7210001は individual 戦略になる', () => {
       const testCases = [
         '<N7100001>...</N7100001>',
         '<N7130001>...</N7130001>',
         '<N7200001>...</N7200001>',
         '<N7170003>...</N7170003>',
+        '<N7210001>...</N7210001>',
         '<DataRoot><様式ID>30839</様式ID></DataRoot>',
         '<DataRoot><様式ID>30840</様式ID></DataRoot>',
         '<DOC><TITLE>雇用保険被保険者資格取得確認通知書</TITLE></DOC>',
@@ -190,7 +191,6 @@ describe('detectProcedureType', () => {
     it('月額変更・算定基礎届・賞与・その他は combined 戦略になる', () => {
       const testCases = [
         '<N7140001>...</N7140001>',
-        '<N7210001>...</N7210001>',
         '<N7150001>...</N7150001>',
         '<N7160001>...</N7160001>',
         '<DataRoot><様式ID>99999</様式ID></DataRoot>',

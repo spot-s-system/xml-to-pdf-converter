@@ -76,7 +76,7 @@ The system recognizes and processes these Japanese government documents in order
 
 - **7140001.xml**: Standard salary revision notice (標準報酬改定通知書) ★複数名統合
   - Multiple persons → Combined into single PDF: `{適用年月}_{通知書名}.pdf`
-  - Example: `R7年9月_健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf`
+  - Example: `R7年9月_健康保険・厚生年金保険標準報酬改定通知書.pdf`
   - ※ Multiple persons from the same revision date are combined into one PDF
 
 - **7200001.xml**: Notice for employees aged 70+ (70歳以上被用者標準報酬月額相当額決定のお知らせ)

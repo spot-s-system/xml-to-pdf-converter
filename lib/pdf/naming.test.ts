@@ -75,12 +75,12 @@ describe('generatePdfFileName', () => {
         firstInsurerName: '改定　太郎',
         insurerCount: 2,
         applicableDate: 'R07年09月',
-        noticeTitle: '健康保険・厚生年金保険被保険者標準報酬改定通知書',
+        noticeTitle: '健康保険・厚生年金保険標準報酬改定通知書',
       };
 
       const result = generatePdfFileName('月額変更', info);
 
-      expect(result).toBe('R07年09月_健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf');
+      expect(result).toBe('R07年09月_健康保険・厚生年金保険標準報酬改定通知書.pdf');
     });
 
     it('適用年月がなく改定年月がある場合、改定年月で代替する', () => {
@@ -88,24 +88,24 @@ describe('generatePdfFileName', () => {
         firstInsurerName: '改定　花子',
         insurerCount: 1,
         revisionDate: 'R07年11月',
-        noticeTitle: '健康保険・厚生年金保険被保険者標準報酬改定通知書',
+        noticeTitle: '健康保険・厚生年金保険標準報酬改定通知書',
       };
 
       const result = generatePdfFileName('月額変更', info);
 
-      expect(result).toBe('R07年11月_健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf');
+      expect(result).toBe('R07年11月_健康保険・厚生年金保険標準報酬改定通知書.pdf');
     });
 
     it('日付情報がない場合、通知書名のみで生成する', () => {
       const info: NamingInfo = {
         firstInsurerName: '改定　次郎',
         insurerCount: 1,
-        noticeTitle: '健康保険・厚生年金保険被保険者標準報酬改定通知書',
+        noticeTitle: '健康保険・厚生年金保険標準報酬改定通知書',
       };
 
       const result = generatePdfFileName('月額変更', info);
 
-      expect(result).toBe('健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf');
+      expect(result).toBe('健康保険・厚生年金保険標準報酬改定通知書.pdf');
     });
 
     it('70歳以上被用者月額改定の場合も改定年月を使用する', () => {
@@ -254,11 +254,11 @@ describe('generateSafePdfFileName', () => {
       firstInsurerName: '改定　太郎',
       insurerCount: 2,
       revisionDate: 'R07年11月',
-      noticeTitle: '健康保険・厚生年金保険被保険者標準報酬改定通知書',
+      noticeTitle: '健康保険・厚生年金保険標準報酬改定通知書',
     };
 
     const result = generateSafePdfFileName('月額変更', info);
 
-    expect(result).toBe('R07年11月_健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf');
+    expect(result).toBe('R07年11月_健康保険・厚生年金保険標準報酬改定通知書.pdf');
   });
 });
