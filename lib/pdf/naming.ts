@@ -3,8 +3,8 @@
  * 手続き種別に応じて適切なPDFファイル名を生成する
  */
 
-import { ProcedureType } from './procedure-detector';
-import { NamingInfo } from './xml-info-extractor';
+import { ProcedureType } from '../config/document-types';
+import { NamingInfo } from '../xml/extractor';
 
 /**
  * PDF命名規則に従ってファイル名を生成

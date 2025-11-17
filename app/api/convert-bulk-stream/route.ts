@@ -10,12 +10,12 @@ import {
   processFolders,
   createResultZip,
   cleanupTempDirectory,
-} from '@/lib/bulk-zip-processor';
+} from '@/lib/zip/bulk-processor';
 import {
   logStart,
   formatDuration,
   truncateFileName,
-} from '@/lib/logger';
+} from '@/lib/utils/logger';
 
 export const maxDuration = 300; // 5分（Vercel Pro）
 

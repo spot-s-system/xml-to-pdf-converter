@@ -1,6 +1,6 @@
-import { applyXsltTransformation } from "./xslt-processor";
-import { generatePdfFromHtml } from "./pdf-generator";
-import { optimizeXslForPdf } from "./xsl-adjuster";
+import { applyXsltTransformation } from "../xml/xslt-processor";
+import { generatePdfFromHtml } from "../pdf/generator";
+import { optimizeXslForPdf } from "../xml/xsl-adjuster";
 import {
   extractInsuredPersonsFrom7100001,
   extractInsuredPersonsFrom7130001,
@@ -9,8 +9,8 @@ import {
   extractInsuredPersonsFrom7210001,
   extractInsuredPersonsFromHenrei,
   extractBusinessOwnerFromKagami,
-} from "./xml-parser";
-import { generatePdfFilename, generatePdfFilenameFor7140001, generatePdfFilenameFor7210001 } from "./document-names";
+} from "../xml/parser";
+import { generatePdfFilename, generatePdfFilenameFor7140001, generatePdfFilenameFor7210001 } from "../config/naming-rules";
 import JSZip from "jszip";
 
 interface ExtractedFiles {

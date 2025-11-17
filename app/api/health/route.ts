@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getBrowserStats } from "@/lib/browser-pool";
+import { getBrowserStats } from "@/lib/pdf/browser";
 
 export async function GET() {
   const memoryUsage = process.memoryUsage();

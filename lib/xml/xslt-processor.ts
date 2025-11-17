@@ -1,4 +1,4 @@
-import { getBrowser } from "./browser-pool";
+import { getBrowser } from "../pdf/browser";
 
 export async function applyXsltTransformation(
   xmlContent: string,

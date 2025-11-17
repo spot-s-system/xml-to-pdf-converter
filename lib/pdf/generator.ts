@@ -1,4 +1,4 @@
-import { getBrowser } from "./browser-pool";
+import { getBrowser } from "./browser";
 
 export async function generatePdfFromHtml(
   htmlContent: string

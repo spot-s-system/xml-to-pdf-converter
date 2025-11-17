@@ -7,12 +7,12 @@ import fs from 'fs/promises';
 import path from 'path';
 import { tmpdir } from 'os';
 import JSZip from 'jszip';
-import { detectProcedureType } from './procedure-detector';
-import { extractNamingInfo } from './xml-info-extractor';
-import { generateSafePdfFileName, generateIndividualPdfFileName } from './pdf-naming';
-import { applyXsltTransformation } from './xslt-processor';
-import { generatePdfFromHtml } from './pdf-generator';
-import { optimizeXslForPdf } from './xsl-adjuster';
+import { detectProcedureType } from '../config/document-types';
+import { extractNamingInfo } from '../xml/extractor';
+import { generateSafePdfFileName, generateIndividualPdfFileName } from '../pdf/naming';
+import { applyXsltTransformation } from '../xml/xslt-processor';
+import { generatePdfFromHtml } from '../pdf/generator';
+import { optimizeXslForPdf } from '../xml/xsl-adjuster';
 import {
   log,
   logIndent,
@@ -21,7 +21,7 @@ import {
   formatDuration,
   createProgressBar,
   truncateFileName,
-} from './logger';
+} from '../utils/logger';
 
 export interface DocumentPair {
   type: 'kagami' | 'notification';

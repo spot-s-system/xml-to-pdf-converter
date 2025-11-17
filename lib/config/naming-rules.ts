@@ -1,4 +1,4 @@
-import { sanitizeFileName } from "./xml-parser";
+import { sanitizeFileName } from "../xml/parser";
 
 /**
  * 通知書番号から正式な通知書名へのマッピング

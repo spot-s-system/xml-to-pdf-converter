@@ -3,7 +3,7 @@
  * PDF命名に必要な情報をXMLから抽出する
  */
 
-import { ProcedureType } from './procedure-detector';
+import { ProcedureType } from '../config/document-types';
 
 export interface NamingInfo {
   // 被保険者情報
