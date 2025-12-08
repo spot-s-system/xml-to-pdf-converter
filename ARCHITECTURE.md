@@ -7,8 +7,7 @@ xml-to-pdf-converter/
 ├── app/                          # Next.js App Router
 │   ├── api/                      # APIエンドポイント
 │   │   ├── convert/route.ts      # ⭐ メインAPI: ZIP→PDF変換
-│   │   ├── health/route.ts       # ヘルスチェック・メモリ監視
-│   │   └── test-chromium/route.ts # Chromiumテスト用
+│   │   └── health/route.ts       # ヘルスチェック・メモリ監視
 │   ├── layout.tsx                # アプリ全体レイアウト
 │   └── page.tsx                  # トップページ（アップロードUI）
 │
