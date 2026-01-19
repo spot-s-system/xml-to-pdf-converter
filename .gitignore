@@ -43,5 +43,5 @@ next-env.d.ts
 # sample data with sensitive information
 sample/
 
-# zip
-.zip
+# zip files
+*.zip
