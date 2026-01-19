@@ -33,6 +33,40 @@ export default function Home() {
     }
   };
 
+  // ダウンロード処理を関数として抽出
+  const handleDownload = (downloadUrl: string) => {
+    try {
+      const [dataUrl, filename] = downloadUrl.split('#');
+      const base64 = dataUrl.split(',')[1];
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const blob = new Blob([bytes], { type: 'application/zip' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = decodeURIComponent(filename);
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      // リセット（ダウンロードが完了したら即座に）
+      setTimeout(() => {
+        setProgress(0);
+        setIsConverting(false);
+      }, 500);
+    } catch (err) {
+      console.error('Download failed:', err);
+      setError('ダウンロードに失敗しました');
+      setIsConverting(false);
+    }
+  };
+
   const handleConvert = async () => {
     if (!zipFile) {
       setError("ZIPファイルを選択してください");
@@ -72,9 +106,44 @@ export default function Home() {
       while (true) {
         const { done, value } = await reader.read();
 
-        if (done) break;
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
 
-        buffer += decoder.decode(value, { stream: true });
+        // ストリームが終了した場合でも、バッファに残っているデータを処理
+        if (done) {
+          // 最後のバッファを処理
+          if (buffer.trim()) {
+            const lines = buffer.split('\n\n').filter(line => line.trim());
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.substring(6));
+
+                  if (data.log) {
+                    setLogs(prev => [...prev, data.log]);
+                  } else if (data.error) {
+                    setError(data.error);
+                  } else if (data.complete) {
+                    setProgress(100);
+
+                    // ダウンロード処理を実行
+                    if (data.downloadUrl) {
+                      handleDownload(data.downloadUrl);
+                    } else {
+                      setError('ダウンロードURLが見つかりません');
+                      setIsConverting(false);
+                    }
+                  }
+                } catch (e) {
+                  console.error("Failed to parse SSE data:", e);
+                }
+              }
+            }
+          }
+          break;
+        }
+
         const lines = buffer.split('\n\n');
         buffer = lines.pop() || '';
 
@@ -93,33 +162,13 @@ export default function Home() {
               } else if (data.complete) {
                 setProgress(100);
 
-                // Base64データからBlobを作成してダウンロード
+                // ダウンロード処理を実行
                 if (data.downloadUrl) {
-                  const [dataUrl, filename] = data.downloadUrl.split('#');
-                  const base64 = dataUrl.split(',')[1];
-                  const binaryString = atob(base64);
-                  const bytes = new Uint8Array(binaryString.length);
-
-                  for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                  }
-
-                  const blob = new Blob([bytes], { type: 'application/zip' });
-                  const url = window.URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = decodeURIComponent(filename);
-                  document.body.appendChild(a);
-                  a.click();
-                  window.URL.revokeObjectURL(url);
-                  document.body.removeChild(a);
-                }
-
-                // リセット
-                setTimeout(() => {
-                  setProgress(0);
+                  handleDownload(data.downloadUrl);
+                } else {
+                  setError('ダウンロードURLが見つかりません');
                   setIsConverting(false);
-                }, 1000);
+                }
               }
             } catch (e) {
               console.error("Failed to parse SSE data:", e);

@@ -61,7 +61,15 @@ export function generatePdfFileName(
 
     case 'その他':
     default:
-      // 通知書名のみ
+      // 被保険者名があれば含める
+      if (info.firstInsurerName) {
+        if (info.insurerCount > 1) {
+          const othersCount = info.insurerCount - 1;
+          return `${info.firstInsurerName}様他${othersCount}名_${info.noticeTitle}.pdf`;
+        }
+        return `${info.firstInsurerName}様_${info.noticeTitle}.pdf`;
+      }
+      // 被保険者名がない場合は通知書名のみ
       return `${info.noticeTitle}.pdf`;
   }
 }

@@ -9,6 +9,8 @@ import {
   extractInsuredPersonsFrom7210001,
   extractInsuredPersonsFromHenrei,
   extractBusinessOwnerFromKagami,
+  extractGenericInsuredPersonName,
+  sanitizeFileName,
 } from "./xml-parser";
 import { generatePdfFilename, generatePdfFilenameFor7140001, generatePdfFilenameFor7210001 } from "./document-names";
 import JSZip from "jszip";
@@ -371,9 +373,22 @@ export async function convertZipToPdfZip(
       const wrappedHtml = wrapHtmlForPdf(html);
       const pdfBuffer = await generatePdfFromHtml(wrappedHtml);
 
-      // ファイル名: XMLファイル名から.xmlを除いて.pdfに変更
+      // 被保険者名を抽出（可能であれば）
+      const insuredPersonName = extractGenericInsuredPersonName(xmlContent);
+
+      // ファイル名を生成
+      let filename: string;
       const baseFilename = getBasename(xmlFile).replace(/\.xml$/i, '');
-      const filename = `${baseFilename}.pdf`;
+
+      if (insuredPersonName) {
+        // 被保険者名が見つかった場合: {名前}様_{元のファイル名}.pdf
+        const sanitizedName = sanitizeFileName(insuredPersonName);
+        filename = `${sanitizedName}様_${baseFilename}.pdf`;
+        log(`📝 Extracted insured person name: ${insuredPersonName}`);
+      } else {
+        // 被保険者名が見つからない場合: 元のファイル名.pdf
+        filename = `${baseFilename}.pdf`;
+      }
 
       pdfFiles.push({ filename, buffer: pdfBuffer });
       processedXmlFiles.add(xmlFile);

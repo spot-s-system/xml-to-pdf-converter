@@ -222,14 +222,29 @@ export function extractFromSocialInsurance(
 export function extractFromDataRoot(xmlContent: string): Partial<NamingInfo> {
   const info: Partial<NamingInfo> = {
     insurerCount: 1,
+    allInsurers: [],
   };
 
-  // 被保険者名
-  const insurerNameMatch = xmlContent.match(
-    /<P1_被保険者(?:x|氏名x)(?:漢字)?氏名>(.*?)<\/P1_被保険者(?:x|氏名x)(?:漢字)?氏名>/
-  );
-  if (insurerNameMatch) {
-    info.firstInsurerName = insurerNameMatch[1].trim();
+  // 被保険者名を複数のパターンで試行
+  const namePatterns = [
+    // P1_氏名x漢字氏名（最も一般的）
+    /<P1_氏名x漢字氏名>(.*?)<\/P1_氏名x漢字氏名>/,
+    // P1_被保険者x漢字氏名
+    /<P1_被保険者x漢字氏名>(.*?)<\/P1_被保険者x漢字氏名>/,
+    // P1_被保険者氏名x漢字氏名
+    /<P1_被保険者氏名x漢字氏名>(.*?)<\/P1_被保険者氏名x漢字氏名>/,
+    // P1_氏名xカナ氏名（フォールバック）
+    /<P1_氏名xカナ氏名>(.*?)<\/P1_氏名xカナ氏名>/,
+  ];
+
+  for (const pattern of namePatterns) {
+    const insurerNameMatch = xmlContent.match(pattern);
+    if (insurerNameMatch && insurerNameMatch[1].trim()) {
+      const name = insurerNameMatch[1].trim();
+      info.firstInsurerName = name;
+      info.allInsurers!.push({ name });
+      break;
+    }
   }
 
   // 取得年月日
@@ -308,7 +323,7 @@ export function extractNamingInfo(
     info = { ...info, ...extractFromDataRoot(xmlContent) };
   } else if (xmlContent.includes('<DOC')) {
     info = { ...info, ...extractFromEmploymentInsurance(xmlContent) };
-  } else if (xmlContent.match(/<N7\d{5}>/)) {
+  } else if (xmlContent.match(/<N7\d{6}>/)) {
     info = { ...info, ...extractFromSocialInsurance(xmlContent, procedureType) };
   }
 

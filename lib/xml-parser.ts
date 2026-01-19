@@ -313,6 +313,50 @@ export function extractBusinessOwnerFromKagami(
 }
 
 /**
+ * 汎用的なXMLから被保険者名を抽出（認識されていないドキュメントタイプ用）
+ * 様々な名前フィールドパターンを試行
+ */
+export function extractGenericInsuredPersonName(
+  xmlContent: string
+): string | null {
+  // 試行する名前フィールドパターン（優先順位順）
+  const namePatterns = [
+    // 社会保険届出書類で使用されるパターン
+    /<P1_氏名x漢字氏名>([^<]+)<\/P1_氏名x漢字氏名>/,
+    /<氏名x漢字氏名>([^<]+)<\/氏名x漢字氏名>/,
+
+    // 通知書で使用されるパターン
+    /<被保険者漢字氏名><!\[CDATA\[(.*?)\]\]><\/被保険者漢字氏名>/,
+    /<被保険者氏名><!\[CDATA\[(.*?)\]\]><\/被保険者氏名>/,
+    /<被用者漢字氏名><!\[CDATA\[(.*?)\]\]><\/被用者漢字氏名>/,
+
+    // CDATA なしの場合
+    /<被保険者漢字氏名>([^<]+)<\/被保険者漢字氏名>/,
+    /<被保険者氏名>([^<]+)<\/被保険者氏名>/,
+    /<被用者漢字氏名>([^<]+)<\/被用者漢字氏名>/,
+
+    // その他の一般的なパターン
+    /<氏名><!\[CDATA\[(.*?)\]\]><\/氏名>/,
+    /<氏名>([^<]+)<\/氏名>/,
+    /<名前><!\[CDATA\[(.*?)\]\]><\/名前>/,
+    /<名前>([^<]+)<\/名前>/,
+  ];
+
+  for (const pattern of namePatterns) {
+    const match = xmlContent.match(pattern);
+    if (match && match[1] && match[1].trim()) {
+      const name = match[1].trim();
+      // 空白や空のCDATAでないことを確認
+      if (name && name.length > 0 && name !== "　" && name !== " ") {
+        return name;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * ファイル名として使用できる文字列にサニタイズ
  */
 export function sanitizeFileName(name: string): string {

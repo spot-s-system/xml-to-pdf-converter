@@ -193,8 +193,9 @@ export async function POST(request: NextRequest) {
         // 結果をBase64エンコードして送信
         const base64Zip = resultZip.toString('base64');
         const fileName = file.name.replace('.zip', '_変換結果.zip');
+        const downloadUrl = `data:application/zip;base64,${base64Zip}#${encodeURIComponent(fileName)}`;
 
-        sendComplete(`data:application/zip;base64,${base64Zip}#${encodeURIComponent(fileName)}`);
+        sendComplete(downloadUrl);
 
       } catch (error) {
         console.error('Bulk conversion error:', error);

@@ -566,10 +566,12 @@ async function processFolderDocuments(
     if (
       procedureInfo.pdfStrategy === 'individual' &&
       namingInfo.allInsurers &&
-      namingInfo.allInsurers.length > 1
+      namingInfo.allInsurers.length >= 1
     ) {
-      // 個別PDF生成（取得・喪失で複数人の場合）
-      logIndent(`Generating ${namingInfo.allInsurers.length} individual PDFs...`, 3);
+      // 個別PDF生成（取得・喪失の場合）
+      const pdfCount = namingInfo.allInsurers.length;
+      const pdfLabel = pdfCount === 1 ? 'PDF' : 'PDFs';
+      logIndent(`Generating ${pdfCount} individual ${pdfLabel}...`, 3);
 
       // 各被保険者のブロックを抽出
       const insurerBlocks = xmlContent.match(
