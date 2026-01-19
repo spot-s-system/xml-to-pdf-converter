@@ -21,13 +21,27 @@ export function generatePdfFileName(
 
   switch (procedureType) {
     case '月額変更':
-      // 適用年月_通知書名.pdf
-      if (info.applicableDate) {
-        return `${info.applicableDate}_${info.noticeTitle}.pdf`;
+      // 改定年月_被保険者名様_通知書名.pdf
+      if (info.applicableDate || info.revisionDate) {
+        const datePrefix = info.applicableDate || info.revisionDate;
+
+        if (info.firstInsurerName) {
+          if (info.insurerCount > 1) {
+            const othersCount = info.insurerCount - 1;
+            return `${datePrefix}_${info.firstInsurerName}様他${othersCount}名_${info.noticeTitle}.pdf`;
+          }
+          return `${datePrefix}_${info.firstInsurerName}様_${info.noticeTitle}.pdf`;
+        }
+        return `${datePrefix}_${info.noticeTitle}.pdf`;
       }
-      // 適用年月が取得できない場合は改定年月で代替
-      if (info.revisionDate) {
-        return `${info.revisionDate}_${info.noticeTitle}.pdf`;
+
+      // 改定年月が取得できない場合
+      if (info.firstInsurerName) {
+        if (info.insurerCount > 1) {
+          const othersCount = info.insurerCount - 1;
+          return `${info.firstInsurerName}様他${othersCount}名_${info.noticeTitle}.pdf`;
+        }
+        return `${info.firstInsurerName}様_${info.noticeTitle}.pdf`;
       }
       return `${info.noticeTitle}.pdf`;
 
