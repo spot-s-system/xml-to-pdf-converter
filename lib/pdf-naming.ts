@@ -46,16 +46,48 @@ export function generatePdfFileName(
       return `${info.noticeTitle}.pdf`;
 
     case '算定基礎届':
-      // 適用年月_通知書名.pdf
+      // 適用年月_被保険者名様_通知書名.pdf
       if (info.revisionDate) {
+        if (info.firstInsurerName) {
+          if (info.insurerCount > 1) {
+            const othersCount = info.insurerCount - 1;
+            return `${info.revisionDate}_${info.firstInsurerName}様他${othersCount}名_${info.noticeTitle}.pdf`;
+          }
+          return `${info.revisionDate}_${info.firstInsurerName}様_${info.noticeTitle}.pdf`;
+        }
         return `${info.revisionDate}_${info.noticeTitle}.pdf`;
+      }
+
+      // 適用年月が取得できない場合
+      if (info.firstInsurerName) {
+        if (info.insurerCount > 1) {
+          const othersCount = info.insurerCount - 1;
+          return `${info.firstInsurerName}様他${othersCount}名_${info.noticeTitle}.pdf`;
+        }
+        return `${info.firstInsurerName}様_${info.noticeTitle}.pdf`;
       }
       return `${info.noticeTitle}.pdf`;
 
     case '賞与':
-      // 賞与支払年月日_通知書名.pdf
+      // 賞与支払年月日_被保険者名様_通知書名.pdf
       if (info.bonusPaymentDate) {
+        if (info.firstInsurerName) {
+          if (info.insurerCount > 1) {
+            const othersCount = info.insurerCount - 1;
+            return `${info.bonusPaymentDate}_${info.firstInsurerName}様他${othersCount}名_${info.noticeTitle}.pdf`;
+          }
+          return `${info.bonusPaymentDate}_${info.firstInsurerName}様_${info.noticeTitle}.pdf`;
+        }
         return `${info.bonusPaymentDate}_${info.noticeTitle}.pdf`;
+      }
+
+      // 賞与支払年月日が取得できない場合
+      if (info.firstInsurerName) {
+        if (info.insurerCount > 1) {
+          const othersCount = info.insurerCount - 1;
+          return `${info.firstInsurerName}様他${othersCount}名_${info.noticeTitle}.pdf`;
+        }
+        return `${info.firstInsurerName}様_${info.noticeTitle}.pdf`;
       }
       return `${info.noticeTitle}.pdf`;
 
