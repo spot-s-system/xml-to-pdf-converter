@@ -9,7 +9,7 @@ import path from 'path';
 import { tmpdir } from 'os';
 import JSZip from 'jszip';
 import { detectProcedureType } from './procedure-detector';
-import { extractNamingInfo } from './xml-info-extractor';
+import { extractNamingInfo, NamingInfo } from './xml-info-extractor';
 import { generateSafePdfFileName, generateIndividualPdfFileName } from './pdf-naming';
 import { applyXsltTransformation } from './xslt-processor';
 import { generatePdfFromHtml } from './pdf-generator';
@@ -530,6 +530,63 @@ function generateIndividualInsurerXml(
 }
 
 /**
+ * [社保]資格取得 / [社保]資格喪失 フォルダ向けの命名情報フォールバック
+ *
+ * 背景:
+ *  - DataRoot形式XMLや一部のN7100001で被保険者名がXMLから抽出できないケースで
+ *    ファイル名が「様_xxx」となる
+ *  - DataRoot形式の喪失で <TITLE> が無い場合、通知書名がデフォルトの「通知書」になる
+ *
+ * 対策: フォルダ名 `{seq}_{会社名}_{被保険者名}_[社保]資格(取得|喪失)_...` から
+ * 被保険者名と通知書名を補完する。
+ */
+function applyShahoFolderNameFallbacks(
+  info: NamingInfo,
+  folderName: string
+): NamingInfo {
+  const m = folderName.match(/\[社保\]資格(取得|喪失)/);
+  if (!m) return info;
+  const subType = m[1] as '取得' | '喪失';
+
+  const expectedTitle =
+    subType === '取得'
+      ? '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書'
+      : '健康保険・厚生年金保険資格喪失確認通知書';
+
+  // 通知書名: 空 or デフォルトフォールバック「通知書」のときに上書き
+  const titleNeedsFix = !info.noticeTitle || info.noticeTitle === '通知書';
+  const fixedTitle = titleNeedsFix ? expectedTitle : info.noticeTitle;
+
+  // 被保険者名: フォルダ名3番目のフィールドから取得（スペース除去）
+  const folderInsurerMatch = folderName.match(/^\d{4}_[^_]+_([^_]+)_/);
+  const folderInsurerName = folderInsurerMatch
+    ? folderInsurerMatch[1].replace(/\s+/g, '')
+    : '';
+
+  // allInsurersの空名前を埋める
+  const fixedAllInsurers = (info.allInsurers ?? []).map((insurer) => ({
+    ...insurer,
+    name: insurer.name && insurer.name.trim() ? insurer.name : folderInsurerName,
+  }));
+
+  // 完全に空の場合はフォルダ名から1人作る
+  if (fixedAllInsurers.length === 0 && folderInsurerName) {
+    fixedAllInsurers.push({ name: folderInsurerName });
+  }
+
+  return {
+    ...info,
+    firstInsurerName:
+      info.firstInsurerName && info.firstInsurerName.trim()
+        ? info.firstInsurerName
+        : folderInsurerName,
+    insurerCount: Math.max(info.insurerCount ?? 0, fixedAllInsurers.length),
+    allInsurers: fixedAllInsurers,
+    noticeTitle: fixedTitle,
+  };
+}
+
+/**
  * 1つのフォルダ内のドキュメントをPDF化
  */
 export async function processFolderDocuments(
@@ -556,11 +613,15 @@ export async function processFolderDocuments(
     // 手続き種別を判定
     const procedureInfo = detectProcedureType(xmlContent);
 
-    // 命名情報を抽出
-    const namingInfo = extractNamingInfo(
+    // 命名情報を抽出（フォルダ名ベースのフォールバック適用）
+    const rawNamingInfo = extractNamingInfo(
       xmlContent,
       procedureInfo.type,
       kagazmiXmlContent
+    );
+    const namingInfo = applyShahoFolderNameFallbacks(
+      rawNamingInfo,
+      folder.folderName
     );
 
     // PDF生成戦略に応じて処理を分岐
