@@ -17,8 +17,10 @@
 - ✅ 日本語フォント完全対応
 - ✅ A4サイズ最適化
 - ✅ ブラウザプールによる高速化（2回目以降0.6秒）
-- ✅ **リアルタイムログ表示（Server-Sent Eventsによるストリーミング）**
-- ✅ **ログのコピー機能（クリップボードへの一括コピー）**
+- ✅ リアルタイムログ表示（Server-Sent Eventsによるストリーミング）
+- ✅ ログのコピー機能（クリップボードへの一括コピー）
+- ✅ **結果ZIPストリーミング配信（base64廃止・ピークメモリ削減）**
+- ✅ **PDFリネーム機能（労保年度更新公文書 / 雇保離職票交付あり）**
 
 ### 対応ドキュメント形式
 
@@ -28,6 +30,19 @@
 | 7200001 | 厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ | 山田太郎様他1名_厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ.pdf |
 | henrei | 返戻のお知らせ | 山田太郎様_返戻のお知らせ.pdf |
 | kagami | 日本年金機構からのお知らせ | 田中一郎様_日本年金機構からのお知らせ.pdf |
+
+### PDFリネームルール（一括変換時）
+
+ZIP内の既存PDF（XML/XSLから生成しないファイル）を、フォルダ名から判定して自動的にリネームします。
+
+| 対象 | フォルダ名パターン | 出力ファイル名 |
+|---|---|---|
+| 労保年度更新（公文書） | `..._[労保]年度更新_{タイムスタンプ}_公文書_*` | `令和{n}年度_労働保険概算・確定保険料申告書.pdf` |
+| 労保年度更新・建設（公文書） | `..._[労保]年度更新(建設)_{タイムスタンプ}_公文書_*` | `令和{n}年度_労働保険概算・確定保険料申告書(建設).pdf` |
+| 雇保 離職票交付あり | `{seq}_{会社名}_{被保険者名}_..._離職票交付あり_...` | `{被保険者名}様_{元のサフィックス}` |
+
+- 元号変換: 西暦 − 2018（例: 2025 → 令和7年度）
+- コメントフォルダ（`_コメント_*`）はリネーム対象外
 
 ## 開発環境のセットアップ
 
@@ -79,17 +94,20 @@ docker run -p 3000:3000 xml-to-pdf-converter
 .
 ├── app/
 │   ├── api/convert/route.ts           # 個別ZIP→PDF変換APIエンドポイント
-│   ├── api/convert-bulk/route.ts      # 一括変換APIエンドポイント
-│   ├── api/convert-bulk-stream/route.ts # リアルタイムログストリーミングAPI
-│   ├── api/test-chromium/route.ts     # Chromiumテストエンドポイント
+│   ├── api/convert-bulk/route.ts      # 一括変換APIエンドポイント（同期レスポンス）
+│   ├── api/convert-bulk-stream/route.ts # リアルタイムログ + ID付きdownloadURL返却（SSE）
+│   ├── api/download/[id]/route.ts     # 結果ZIPストリーミング配信
+│   ├── api/health/route.ts            # ヘルスチェック
 │   ├── page.tsx                       # メインUIページ（リアルタイムログ対応）
 │   └── layout.tsx                     # アプリケーションレイアウト
 ├── lib/
 │   ├── zip-to-pdf.ts                 # ZIP処理とドキュメント構成
-│   ├── bulk-zip-processor.ts         # 一括処理・ネストZIP対応
+│   ├── bulk-zip-processor.ts         # 一括処理・ネストZIP対応・PDFリネーム
+│   ├── download-store.ts             # 一時ダウンロードファイルのID管理（globalThis永続化）
 │   ├── xslt-processor.ts             # XSLT変換処理
 │   ├── xsl-adjuster.ts               # XSLスタイルシートA4最適化
 │   ├── pdf-generator.ts              # Puppeteer PDF生成
+│   ├── browser-pool.ts               # Puppeteerブラウザインスタンスプール
 │   ├── logger.ts                     # リアルタイムログ管理
 │   └── utils.ts                      # ユーティリティ関数
 ├── components/
@@ -299,8 +317,20 @@ PuppeteerでHTMLをPDFに変換：
 
 - アイドル時: ~100MB
 - 変換中: ~150-200MB
-- 自動再起動: 環境変数`MAX_REQUESTS_PER_BROWSER`で設定可能（デフォルト: 50）
+- 自動再起動: 環境変数`MAX_REQUESTS_PER_BROWSER`で設定可能（デフォルト: 50, Render無料: 30）
 - Render free tier（512MB）で安定動作
+
+### 一括変換のメモリ最適化
+
+`/api/convert-bulk-stream` では、Render無料枠（512MB）でのメモリ枯渇を防ぐため以下の最適化を実施：
+
+1. **base64データURLを廃止** — 結果ZIPは一時ファイルに書き出し、`/api/download/{id}` 経由でストリーミング配信
+2. **ZIP生成ストリーミング** — `JSZip.generateNodeStream({ streamFiles: true })` で大きなBufferを作らずディスクへ pipe
+3. **PDF生成バッファの早期解放** — 生成PDFを即時ディスク書き出しし、JSZipには `ReadStream` 参照のみ保持
+4. **元ファイルもストリーム化** — XML/XSL/その他ファイルは `fs.createReadStream` でJSZipに渡す
+5. **ダウンロードIDの永続化** — `globalThis` + `Symbol.for` で Next.js dev のHMR/Route別コンパイルを跨いでMapを共有
+
+50MB規模の結果ZIPで **ピーク -150〜200MB** のメモリ削減効果。
 
 ## トラブルシューティング
 

@@ -36,6 +36,26 @@ export default function Home() {
   // ダウンロード処理を関数として抽出
   const handleDownload = (downloadUrl: string) => {
     try {
+      // サーバー側ストリーミング配信URL（/api/download/{id}）
+      // Content-Disposition ヘッダーがファイル名を提供するため、navigation でダウンロード
+      if (downloadUrl.startsWith('/api/download/') || downloadUrl.startsWith('http')) {
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.rel = 'noopener';
+        // download属性を空文字で指定するとContent-Dispositionのfilenameが優先される
+        a.setAttribute('download', '');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        setTimeout(() => {
+          setProgress(0);
+          setIsConverting(false);
+        }, 500);
+        return;
+      }
+
+      // 後方互換: 旧来のbase64データURL形式もハンドリング
       const [dataUrl, filename] = downloadUrl.split('#');
       const base64 = dataUrl.split(',')[1];
       const binaryString = atob(base64);
@@ -55,7 +75,6 @@ export default function Home() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      // リセット（ダウンロードが完了したら即座に）
       setTimeout(() => {
         setProgress(0);
         setIsConverting(false);

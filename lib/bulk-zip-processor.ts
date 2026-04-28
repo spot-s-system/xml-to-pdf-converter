@@ -4,6 +4,7 @@
  */
 
 import fs from 'fs/promises';
+import { createReadStream } from 'fs';
 import path from 'path';
 import { tmpdir } from 'os';
 import JSZip from 'jszip';
@@ -531,7 +532,7 @@ function generateIndividualInsurerXml(
 /**
  * 1つのフォルダ内のドキュメントをPDF化
  */
-async function processFolderDocuments(
+export async function processFolderDocuments(
   folder: FolderStructure
 ): Promise<GeneratedPdf[]> {
   const pdfs: GeneratedPdf[] = [];
@@ -674,24 +675,60 @@ function extractInsurerNameFromFolderName(folderName: string): string | null {
 }
 
 /**
- * PDFファイル名を必要に応じてリネーム
- * 数字で始まるPDFファイルの場合、数字部分を被保険者名に置き換える
- * 例: "2501793096_雇用保険被保険者資格喪失確認通知書.pdf" → "川村夏菜様_雇用保険被保険者資格喪失確認通知書.pdf"
+ * フォルダ名から「[労保]年度更新公文書」のリネーム情報を抽出
+ *
+ * 対象パターン:
+ *   {seq}_{company}_[労保]年度更新{?(建設)}_{14桁以上の年月日時刻}_公文書_{n}
+ * 例:
+ *   0001_xxx_[労保]年度更新_202507071232247301_公文書_4 → 令和7年（建設なし）
+ *   0011_xxx_[労保]年度更新(建設)_202507031133539941_公文書_2 → 令和7年（建設あり）
+ *
+ * 「コメント」フォルダはリネーム対象外なのでnullを返す。
  */
-function renamePdfIfNeeded(fileName: string, insurerName: string | null): string {
-  // PDFファイルでない場合、または被保険者名がない場合はそのまま返す
-  if (!fileName.toLowerCase().endsWith('.pdf') || !insurerName) {
-    return fileName;
+function extractRoudouHokenKoubunshoInfo(
+  folderName: string
+): { reiwaYear: number; isKensetsu: boolean } | null {
+  const match = folderName.match(
+    /\[労保\]年度更新(\(建設\))?_(\d{4})\d{10,}_公文書_/
+  );
+  if (!match) return null;
+  const seireki = parseInt(match[2], 10);
+  const reiwa = seireki - 2018; // 2019 = 令和元年(1)
+  if (reiwa < 1) return null;
+  return { reiwaYear: reiwa, isKensetsu: !!match[1] };
+}
+
+/**
+ * PDFファイル名を必要に応じてリネーム
+ *
+ * リネームルール（優先順）:
+ *   1. [労保]年度更新の公文書フォルダ:
+ *        フォルダ内の **全PDF** を `令和{n}年度_労働保険概算・確定保険料申告書{(建設)?}.pdf` に統一
+ *        （元ファイル名の形式は問わない）
+ *   2. 雇用保険「離職票交付あり」フォルダ:
+ *        数字で始まるPDFの数字部分を被保険者名で置換し「{name}様_」を付与
+ *   3. それ以外:
+ *        そのまま
+ */
+function renamePdfIfNeeded(fileName: string, folderName: string): string {
+  if (!fileName.toLowerCase().endsWith('.pdf')) return fileName;
+
+  // ルール1: 労働保険年度更新（公文書）— ファイル名形式は問わない
+  const roudouHoken = extractRoudouHokenKoubunshoInfo(folderName);
+  if (roudouHoken) {
+    const suffix = roudouHoken.isKensetsu ? '(建設)' : '';
+    return `令和${roudouHoken.reiwaYear}年度_労働保険概算・確定保険料申告書${suffix}.pdf`;
   }
 
-  // 数字で始まるPDFファイルのみリネーム対象
-  const match = fileName.match(/^\d+_(.+)$/);
-  if (match) {
-    // 数字部分を被保険者名に置き換え（「様」を付与）
-    return `${insurerName}様_${match[1]}`;
+  // ルール2: 雇用保険 離職票交付あり — 数字で始まるPDFのみ
+  const numericPrefixMatch = fileName.match(/^\d+_(.+)$/);
+  if (numericPrefixMatch) {
+    const insurerName = extractInsurerNameFromFolderName(folderName);
+    if (insurerName) {
+      return `${insurerName}様_${numericPrefixMatch[1]}`;
+    }
   }
 
-  // パターンに合わない場合はそのまま返す
   return fileName;
 }
 
@@ -708,9 +745,6 @@ export async function createResultZip(
     // "root"フォルダの場合は特別扱い（ルートにファイルを配置）
     const isRootFolder = folder.folderName === 'root';
     const folderPrefix = isRootFolder ? '' : `${folder.folderName}/`;
-
-    // フォルダ名から被保険者名を抽出（PDFリネーム用）
-    const insurerName = extractInsurerNameFromFolderName(folder.folderName);
 
     if (folder.success && folder.pdfs) {
       // PDFを追加
@@ -743,7 +777,7 @@ export async function createResultZip(
             const fileBuffer = await fs.readFile(sourcePath);
 
             // PDFファイルの場合、必要に応じてリネーム
-            const targetFileName = renamePdfIfNeeded(fileName, insurerName);
+            const targetFileName = renamePdfIfNeeded(fileName, folder.folderName);
 
             zip.file(`${folderPrefix}${targetFileName}`, fileBuffer);
           } catch (error) {
@@ -774,6 +808,166 @@ export async function createResultZip(
     compression: 'DEFLATE',
     compressionOptions: { level: 6 },
   });
+}
+
+/**
+ * フォルダ単位の進捗コールバック
+ */
+export interface ProcessProgress {
+  onLog?: (message: string) => void;
+  onFolderStart?: (index: number, total: number, folderName: string) => void;
+  onFolderComplete?: (
+    index: number,
+    total: number,
+    folderName: string,
+    success: boolean,
+    pdfCount: number,
+    error?: string
+  ) => void;
+}
+
+/**
+ * フォルダ群を処理しながら逐次JSZipに追加する（メモリ効率版）
+ *
+ * 旧来の processFolders + createResultZip の合成版。
+ * - 生成PDFはディスクに即書き出し、JSZipにはReadStream参照のみ保持 → Buffer即解放
+ * - 元のXML/XSL/その他ファイルもReadStreamでJSZipに渡し、メモリ常駐させない
+ * - 大きな中間Bufferを作らないことでRender無料枠（512MB）の枯渇を防ぐ
+ */
+export async function processFoldersToZip(
+  folders: FolderStructure[],
+  extractPath: string,
+  callbacks?: ProcessProgress
+): Promise<JSZip> {
+  const zip = new JSZip();
+  const total = folders.length;
+
+  // 生成PDF一時格納先（extractPath配下に作るので最終クリーンアップで一緒に消える）
+  const intermediatePdfDir = path.join(extractPath, '__generated_pdfs__');
+  await fs.mkdir(intermediatePdfDir, { recursive: true });
+
+  let pdfCounter = 0;
+
+  for (let i = 0; i < total; i++) {
+    const folder = folders[i];
+    const folderNumber = i + 1;
+    callbacks?.onFolderStart?.(i, total, folder.folderName);
+    callbacks?.onLog?.(
+      `[${folderNumber}/${total}] 📁 Processing: ${truncateFileName(folder.folderName, 50)}`
+    );
+
+    const isRootFolder = folder.folderName === 'root';
+    const folderPrefix = isRootFolder ? '' : `${folder.folderName}/`;
+
+    try {
+      // PDF生成
+      let generated: GeneratedPdf[] | null = await processFolderDocuments(folder);
+      const pdfCount = generated.length;
+
+      // 各PDFをディスクに書き出してJSZipにはReadStreamのみ追加し、Bufferを即解放する
+      for (const pdf of generated) {
+        const tmpPdfPath = path.join(intermediatePdfDir, `${pdfCounter++}.pdf`);
+        await fs.writeFile(tmpPdfPath, pdf.buffer);
+        zip.file(`${folderPrefix}${pdf.name}`, createReadStream(tmpPdfPath));
+      }
+      // ローカル参照を破棄してV8がBufferをGCできるようにする
+      generated = null;
+
+      // 元のXML/XSLファイル（ストリームでZIPに流し込む）
+      if (folder.xmlXslFiles) {
+        for (const fileName of folder.xmlXslFiles) {
+          const sourcePath = path.join(folder.folderPath, fileName);
+          try {
+            await fs.access(sourcePath);
+            zip.file(`${folderPrefix}${fileName}`, createReadStream(sourcePath));
+          } catch (error) {
+            console.error(`Failed to copy XML/XSL file ${fileName}:`, error);
+          }
+        }
+      }
+
+      // その他ファイル（PDFはリネーム適用）
+      if (folder.otherFiles) {
+        for (const fileName of folder.otherFiles) {
+          const sourcePath = path.join(folder.folderPath, fileName);
+          try {
+            await fs.access(sourcePath);
+            const targetFileName = renamePdfIfNeeded(fileName, folder.folderName);
+            if (targetFileName !== fileName) {
+              callbacks?.onLog?.(
+                `[${folderNumber}/${total}]   ✏️ Renamed: ${truncateFileName(fileName, 40)} → ${truncateFileName(targetFileName, 50)}`
+              );
+            }
+            zip.file(`${folderPrefix}${targetFileName}`, createReadStream(sourcePath));
+          } catch (error) {
+            console.error(`Failed to copy file ${fileName}:`, error);
+          }
+        }
+      }
+
+      callbacks?.onFolderComplete?.(i, total, folder.folderName, true, pdfCount);
+      callbacks?.onLog?.(
+        `[${folderNumber}/${total}] ✅ Completed: ${pdfCount} PDFs generated`
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '不明なエラー';
+      const errorContent = `PDFの変換中にエラーが発生しました\n\nフォルダ: ${folder.folderName}\nエラー内容: ${errorMessage}\n\n対処方法:\n1. 元のZIPファイルの内容を確認してください\n2. 不足しているファイルを追加して再度アップロードしてください`;
+      zip.file(`${folderPrefix}変換エラー.txt`, errorContent);
+      callbacks?.onFolderComplete?.(i, total, folder.folderName, false, 0, errorMessage);
+      callbacks?.onLog?.(`[${folderNumber}/${total}] ❌ Error: ${errorMessage}`);
+    }
+  }
+
+  // ルート直下のファイル（Excel等）
+  const rootEntries = await fs.readdir(extractPath, { withFileTypes: true });
+  for (const file of rootEntries) {
+    if (file.isFile()) {
+      const filePath = path.join(extractPath, file.name);
+      zip.file(file.name, createReadStream(filePath));
+    }
+  }
+
+  return zip;
+}
+
+/**
+ * JSZipをディスク上の一時ファイルにストリーム書き出し
+ * - 巨大なzipをメモリ上にBuffer化しないことでピークメモリを大幅削減
+ * - 戻り値: 書き出した一時ファイルの絶対パス
+ */
+export async function streamZipToTempFile(zip: JSZip): Promise<string> {
+  const { createWriteStream } = await import('fs');
+  const outPath = path.join(tmpdir(), `bulk-result-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.zip`);
+
+  await new Promise<void>((resolve, reject) => {
+    const writeStream = createWriteStream(outPath);
+    let settled = false;
+    const settleResolve = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const settleReject = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+
+    writeStream.on('finish', settleResolve);
+    writeStream.on('error', settleReject);
+
+    zip
+      .generateNodeStream({
+        type: 'nodebuffer',
+        streamFiles: true,
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      })
+      .on('error', settleReject)
+      .pipe(writeStream);
+  });
+
+  return outPath;
 }
 
 /**
