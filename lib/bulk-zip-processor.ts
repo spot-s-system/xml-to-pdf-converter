@@ -764,23 +764,24 @@ function extractRoudouHokenKoubunshoInfo(
 }
 
 /**
- * [労保]系の公文書フォルダで固定名にリネームするマッピング
+ * 公文書フォルダで固定名にリネームするマッピング（労保・社保など）
  *
  * 対象は「公文書」フォルダのみ（コメントフォルダは対象外）。
  * 必要に応じてエントリを追加してください。
  */
-const ROUDOUHOKEN_FIXED_NAME_MAP: Array<{
+const FIXED_NAME_MAP: Array<{
   pattern: RegExp;
   fileName: string;
 }> = [
   { pattern: /\[労保\]保険関係成立届/, fileName: '労働保険関係成立届.pdf' },
   { pattern: /\[労保\]名称所在地変更/, fileName: '労働保険名称所在地変更届.pdf' },
   { pattern: /\[労保\]概算保険料申告\(継続\)/, fileName: '労働保険概算保険料申告書.pdf' },
+  { pattern: /\[社保\]新規適用/, fileName: '（社会保険）適用通知書.pdf' },
 ];
 
-function getRoudouHokenFixedFilename(folderName: string): string | null {
+function getFixedKoubunshoFilename(folderName: string): string | null {
   if (!/_公文書_/.test(folderName)) return null;
-  for (const { pattern, fileName } of ROUDOUHOKEN_FIXED_NAME_MAP) {
+  for (const { pattern, fileName } of FIXED_NAME_MAP) {
     if (pattern.test(folderName)) return fileName;
   }
   return null;
@@ -793,7 +794,7 @@ function getRoudouHokenFixedFilename(folderName: string): string | null {
  *   1. [労保]年度更新の公文書フォルダ:
  *        フォルダ内の **全PDF** を `令和{n}年度_労働保険概算・確定保険料申告書{(建設)?}.pdf` に統一
  *        （元ファイル名の形式は問わない）
- *   2. [労保]系の固定名マッピング（保険関係成立届、名称所在地変更...）:
+ *   2. 固定名マッピング（労保・社保の各公文書フォルダ）:
  *        フォルダ内の **全PDF** をマッピング先の固定ファイル名に統一
  *   3. [雇保]資格取得 / [雇保]資格喪失（離職票交付あり含む）フォルダ:
  *        数字で始まるPDFの数字部分を被保険者名で置換し「{name}様_」を付与
@@ -810,8 +811,8 @@ function renamePdfIfNeeded(fileName: string, folderName: string): string {
     return `令和${roudouHoken.reiwaYear}年度_労働保険概算・確定保険料申告書${suffix}.pdf`;
   }
 
-  // ルール2: 労保系の固定名（保険関係成立届/名称所在地変更/...）— ファイル名形式は問わない
-  const fixedName = getRoudouHokenFixedFilename(folderName);
+  // ルール2: 公文書の固定名マッピング（労保系/社保新規適用など）— ファイル名形式は問わない
+  const fixedName = getFixedKoubunshoFilename(folderName);
   if (fixedName) {
     return fixedName;
   }
