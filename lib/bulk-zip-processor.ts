@@ -587,8 +587,9 @@ function applyShahoFolderNameFallbacks(
     };
   }
 
-  // 被保険者名: フォルダ名3番目のフィールドから取得（スペース除去）
-  const folderInsurerMatch = folderName.match(/^\d{4}_[^_]+_([^_]+)_/);
+  // 被保険者名: 手続きタグ `_[社保]xxx_` の直前のフィールドから取得（スペース除去）
+  // 4フィールド「seq_会社_名前_[社保]xxx」と5フィールド「seq_会社_番号_名前_[社保]xxx」の双方に対応
+  const folderInsurerMatch = folderName.match(/_([^_]+)_\[社保\][^_]*_/);
   const folderInsurerName = folderInsurerMatch
     ? folderInsurerMatch[1].replace(/\s+/g, '')
     : '';
@@ -753,18 +754,21 @@ export async function processFolderDocuments(
  *   - [雇保]育児時短就業給付
  *   - [雇保]育児休業出生時休業給付
  *
- * パターン: {番号}_{会社名}_{被保険者名}_{手続き種別}...
+ * 抽出ルール: 手続きタグ `_[雇保]xxx_` の **直前** のフィールドを被保険者名とする。
+ * これにより以下の両方の構造に対応：
+ *   - 4フィールド: {番号}_{会社名}_{被保険者名}_{手続き種別}
+ *   - 5フィールド: {番号}_{会社名}_{被保険者番号}_{被保険者名}_{手続き種別}
+ *
  * 例:
- *   "0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_..." → "川村夏菜"
- *   "0014_株式会社1SEC_濱中 広宣_[雇保]資格取得_..."             → "濱中広宣"
- *   "0020_株式会社1SEC_鈴木 花子_[雇保]育児休業出生後休業給付_..." → "鈴木花子"
+ *   "0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_..."          → "川村夏菜"
+ *   "0001_株式会社A_2971676_鈴木 花子_[雇保]育児休業出生後休業給付_..."        → "鈴木花子"
  */
 function extractInsurerNameFromFolderName(folderName: string): string | null {
   const isYakuhoTarget = /\[雇保\](?:資格取得|資格喪失|育児休業出生後休業給付|育児時短就業給付|育児休業出生時休業給付)/.test(folderName);
   if (!isYakuhoTarget) return null;
 
-  // パターン: 4桁の番号_会社名_被保険者名_...
-  const match = folderName.match(/^\d{4}_[^_]+_([^_]+)_/);
+  // 「_{被保険者名}_[雇保]手続き種別_」の直前フィールドを取得
+  const match = folderName.match(/_([^_]+)_\[雇保\][^_]*_/);
   if (match) {
     // 被保険者名を抽出し、スペースを削除
     return match[1].replace(/\s+/g, '');
