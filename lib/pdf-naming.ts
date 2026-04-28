@@ -7,6 +7,20 @@ import { ProcedureType } from './procedure-detector';
 import { NamingInfo } from './xml-info-extractor';
 
 /**
+ * 月額変更の日付プレフィックスを `R08年04月` → `令和8年4月改定` に整形
+ * 該当しないフォーマットはそのまま返す。
+ */
+function formatRevisionDateForFilename(date: string): string {
+  const match = date.match(/^([SHR])(\d+)年(\d+)月$/);
+  if (!match) return date;
+  const eraMap: Record<string, string> = { S: '昭和', H: '平成', R: '令和' };
+  const era = eraMap[match[1]] ?? match[1];
+  const year = parseInt(match[2], 10);
+  const month = parseInt(match[3], 10);
+  return `${era}${year}年${month}月改定`;
+}
+
+/**
  * PDF命名規則に従ってファイル名を生成
  */
 export function generatePdfFileName(
@@ -21,9 +35,11 @@ export function generatePdfFileName(
 
   switch (procedureType) {
     case '月額変更':
-      // 改定年月_被保険者名様_通知書名.pdf
+      // 令和n年m月改定_被保険者名様_通知書名.pdf
       if (info.applicableDate || info.revisionDate) {
-        const datePrefix = info.applicableDate || info.revisionDate;
+        const datePrefix = formatRevisionDateForFilename(
+          (info.applicableDate || info.revisionDate)!
+        );
 
         if (info.firstInsurerName) {
           if (info.insurerCount > 1) {
