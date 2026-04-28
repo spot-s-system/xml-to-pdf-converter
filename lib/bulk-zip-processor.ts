@@ -534,12 +534,18 @@ function generateIndividualInsurerXml(
  *
  * フォルダ名のパターン（key）にマッチした場合、value の通知書名を
  * 既定タイトル（`通知書` 等）の代わりに使用する。
+ * isPerCompany: true は会社単位の手続き（被保険者名を付与しない）。
  */
-const SHAHO_TITLE_MAP: Array<{ pattern: RegExp; title: string }> = [
+const SHAHO_TITLE_MAP: Array<{
+  pattern: RegExp;
+  title: string;
+  isPerCompany?: boolean;
+}> = [
   { pattern: /\[社保\]資格取得/,            title: '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書' },
   { pattern: /\[社保\]資格喪失/,            title: '健康保険・厚生年金保険資格喪失確認通知書' },
   { pattern: /\[社保\]育児休業等申出書/,    title: '健康保険・厚生年金保険育児休業等取得者確認通知書' },
   { pattern: /\[社保\]産前産後休業等申出書/, title: '健康保険・厚生年金保険産前産後休業取得者確認通知書' },
+  { pattern: /\[社保\]新規適用/,            title: '（社会保険）適用通知書', isPerCompany: true },
 ];
 
 /**
@@ -557,18 +563,29 @@ function applyShahoFolderNameFallbacks(
   info: NamingInfo,
   folderName: string
 ): NamingInfo {
-  let expectedTitle: string | null = null;
-  for (const { pattern, title } of SHAHO_TITLE_MAP) {
-    if (pattern.test(folderName)) {
-      expectedTitle = title;
+  let entry: { title: string; isPerCompany?: boolean } | null = null;
+  for (const e of SHAHO_TITLE_MAP) {
+    if (e.pattern.test(folderName)) {
+      entry = { title: e.title, isPerCompany: e.isPerCompany };
       break;
     }
   }
-  if (!expectedTitle) return info;
+  if (!entry) return info;
 
   // 通知書名: 空 or デフォルトフォールバック「通知書」のときに上書き
   const titleNeedsFix = !info.noticeTitle || info.noticeTitle === '通知書';
-  const fixedTitle = titleNeedsFix ? expectedTitle : info.noticeTitle;
+  const fixedTitle = titleNeedsFix ? entry.title : info.noticeTitle;
+
+  // 会社単位の手続き: 被保険者名を付与しない（クリアして通知書名のみで生成）
+  if (entry.isPerCompany) {
+    return {
+      ...info,
+      firstInsurerName: '',
+      insurerCount: 0,
+      allInsurers: [],
+      noticeTitle: fixedTitle,
+    };
+  }
 
   // 被保険者名: フォルダ名3番目のフィールドから取得（スペース除去）
   const folderInsurerMatch = folderName.match(/^\d{4}_[^_]+_([^_]+)_/);
