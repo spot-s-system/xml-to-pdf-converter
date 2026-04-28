@@ -801,6 +801,34 @@ function extractRoudouHokenKoubunshoInfo(
 }
 
 /**
+ * [社保]系の公文書フォルダで「{被保険者名}様_{固定通知書名}.pdf」にリネームするマッピング
+ *
+ * SHAHO_TITLE_MAP は PDF生成時の命名フォールバックに使われるが、
+ * このマップは既存PDF（`otherFiles`）のリネーム時に使われる。
+ * フォルダにXML/XSLが無く既存PDFが「通知書.pdf」のような名前で同梱されているケースを救済する。
+ */
+const SHAHO_PER_PERSON_RENAME_MAP: Array<{
+  pattern: RegExp;
+  title: string;
+}> = [
+  { pattern: /\[社保\]育児休業等申出書/,    title: '健康保険・厚生年金保険育児休業等取得者確認通知書' },
+  { pattern: /\[社保\]産前産後休業等申出書/, title: '健康保険・厚生年金保険産前産後休業取得者確認通知書' },
+];
+
+function getShahoPerPersonRenameTitle(folderName: string): string | null {
+  if (!/_公文書_/.test(folderName)) return null;
+  for (const { pattern, title } of SHAHO_PER_PERSON_RENAME_MAP) {
+    if (pattern.test(folderName)) return title;
+  }
+  return null;
+}
+
+function extractInsurerNameFromShahoFolder(folderName: string): string | null {
+  const match = folderName.match(/_([^_]+)_\[社保\][^_]*_/);
+  return match ? match[1].trim() : null;
+}
+
+/**
  * 旧バージョンの本コンバーターが出力した「元号略号始まりの日付付きPDF名」かを判定
  *   例: `R08年01月25日_xxx.pdf` / `H30年04月_xxx.pdf` / `S64年12月25日_xxx.pdf`
  *
@@ -843,11 +871,13 @@ function getFixedKoubunshoFilename(folderName: string): string | null {
  *   1. [労保]年度更新の公文書フォルダ:
  *        フォルダ内の **全PDF** を `令和{n}年度_労働保険概算・確定保険料申告書{(建設)?}.pdf` に統一
  *        （元ファイル名の形式は問わない）
- *   2. 固定名マッピング（労保・社保の各公文書フォルダ）:
+ *   2. 固定名マッピング（労保・社保の各公文書フォルダ・会社単位）:
  *        フォルダ内の **全PDF** をマッピング先の固定ファイル名に統一
- *   3. [雇保]資格取得 / [雇保]資格喪失（離職票交付あり含む）フォルダ:
+ *   3. [社保]育児休業等申出書 / [社保]産前産後休業等申出書（公文書）:
+ *        フォルダ内の **全PDF** を `{被保険者名}様_{固定通知書名}.pdf` に統一
+ *   4. [雇保]資格取得 / [雇保]資格喪失（離職票交付あり含む）/ 育児系フォルダ:
  *        数字で始まるPDFの数字部分を被保険者名で置換し「{name}様_」を付与
- *   4. それ以外:
+ *   5. それ以外:
  *        そのまま
  */
 function renamePdfIfNeeded(fileName: string, folderName: string): string {
@@ -860,13 +890,22 @@ function renamePdfIfNeeded(fileName: string, folderName: string): string {
     return `令和${roudouHoken.reiwaYear}年度_労働保険概算・確定保険料申告書${suffix}.pdf`;
   }
 
-  // ルール2: 公文書の固定名マッピング（労保系/社保新規適用など）— ファイル名形式は問わない
+  // ルール2: 公文書の固定名マッピング（労保系/社保新規適用など会社単位の手続き）
   const fixedName = getFixedKoubunshoFilename(folderName);
   if (fixedName) {
     return fixedName;
   }
 
-  // ルール3: 雇用保険 資格取得/喪失/育児系 — 数字始まり（ハイフン付き連番も含む）
+  // ルール3: 社保 育休/産休（公文書）— ファイル名形式は問わない
+  const shahoTitle = getShahoPerPersonRenameTitle(folderName);
+  if (shahoTitle) {
+    const insurerName = extractInsurerNameFromShahoFolder(folderName);
+    if (insurerName) {
+      return `${insurerName}様_${shahoTitle}.pdf`;
+    }
+  }
+
+  // ルール4: 雇用保険 資格取得/喪失/育児系 — 数字始まり（ハイフン付き連番も含む）
   // 例: `2501793096_xxx.pdf` / `202602021152166333-0001_xxx.pdf`
   const numericPrefixMatch = fileName.match(/^\d+(?:-\d+)?_(.+)$/);
   if (numericPrefixMatch) {
