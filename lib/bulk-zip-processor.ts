@@ -654,16 +654,20 @@ export async function processFolderDocuments(
 
 /**
  * フォルダ名から被保険者名を抽出
- * パターン: {番号}_{会社名}_{被保険者名}_{手続き種別}...
- * 例: "0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_..." → "川村夏菜"
  *
- * 重要: 「離職票交付あり」がフォルダ名に含まれている場合のみ被保険者名を返す
+ * 対象手続き（フォルダ名に含まれていれば対象）:
+ *   - [雇保]資格取得
+ *   - [雇保]資格喪失（「離職票交付あり」サブパターン含む）
+ *
+ * パターン: {番号}_{会社名}_{被保険者名}_{手続き種別}...
+ * 例:
+ *   "0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_..." → "川村夏菜"
+ *   "0014_株式会社1SEC_濱中 広宣_[雇保]資格取得_..."             → "濱中広宣"
  */
 function extractInsurerNameFromFolderName(folderName: string): string | null {
-  // 「離職票交付あり」が含まれていない場合は null を返す
-  if (!folderName.includes('離職票交付あり')) {
-    return null;
-  }
+  const isYakuhoTarget =
+    /\[雇保\]資格取得/.test(folderName) || /\[雇保\]資格喪失/.test(folderName);
+  if (!isYakuhoTarget) return null;
 
   // パターン: 4桁の番号_会社名_被保険者名_...
   const match = folderName.match(/^\d{4}_[^_]+_([^_]+)_/);
@@ -705,7 +709,7 @@ function extractRoudouHokenKoubunshoInfo(
  *   1. [労保]年度更新の公文書フォルダ:
  *        フォルダ内の **全PDF** を `令和{n}年度_労働保険概算・確定保険料申告書{(建設)?}.pdf` に統一
  *        （元ファイル名の形式は問わない）
- *   2. 雇用保険「離職票交付あり」フォルダ:
+ *   2. [雇保]資格取得 / [雇保]資格喪失（離職票交付あり含む）フォルダ:
  *        数字で始まるPDFの数字部分を被保険者名で置換し「{name}様_」を付与
  *   3. それ以外:
  *        そのまま
@@ -720,7 +724,7 @@ function renamePdfIfNeeded(fileName: string, folderName: string): string {
     return `令和${roudouHoken.reiwaYear}年度_労働保険概算・確定保険料申告書${suffix}.pdf`;
   }
 
-  // ルール2: 雇用保険 離職票交付あり — 数字で始まるPDFのみ
+  // ルール2: 雇用保険 資格取得/喪失 — 数字で始まるPDFのみ
   const numericPrefixMatch = fileName.match(/^\d+_(.+)$/);
   if (numericPrefixMatch) {
     const insurerName = extractInsurerNameFromFolderName(folderName);
