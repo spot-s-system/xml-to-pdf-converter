@@ -587,11 +587,11 @@ function applyShahoFolderNameFallbacks(
     };
   }
 
-  // 被保険者名: 手続きタグ `_[社保]xxx_` の直前のフィールドから取得（スペース除去）
+  // 被保険者名: 手続きタグ `_[社保]xxx_` の直前のフィールドから取得（前後trimのみ、内部スペース保持）
   // 4フィールド「seq_会社_名前_[社保]xxx」と5フィールド「seq_会社_番号_名前_[社保]xxx」の双方に対応
   const folderInsurerMatch = folderName.match(/_([^_]+)_\[社保\][^_]*_/);
   const folderInsurerName = folderInsurerMatch
-    ? folderInsurerMatch[1].replace(/\s+/g, '')
+    ? folderInsurerMatch[1].trim()
     : '';
 
   // allInsurersの空名前を埋める
@@ -768,10 +768,10 @@ function extractInsurerNameFromFolderName(folderName: string): string | null {
   if (!isYakuhoTarget) return null;
 
   // 「_{被保険者名}_[雇保]手続き種別_」の直前フィールドを取得
+  // 内部の半角/全角スペースは保持し、前後のみtrim
   const match = folderName.match(/_([^_]+)_\[雇保\][^_]*_/);
   if (match) {
-    // 被保険者名を抽出し、スペースを削除
-    return match[1].replace(/\s+/g, '');
+    return match[1].trim();
   }
   return null;
 }
@@ -866,8 +866,9 @@ function renamePdfIfNeeded(fileName: string, folderName: string): string {
     return fixedName;
   }
 
-  // ルール3: 雇用保険 資格取得/喪失 — 数字で始まるPDFのみ
-  const numericPrefixMatch = fileName.match(/^\d+_(.+)$/);
+  // ルール3: 雇用保険 資格取得/喪失/育児系 — 数字始まり（ハイフン付き連番も含む）
+  // 例: `2501793096_xxx.pdf` / `202602021152166333-0001_xxx.pdf`
+  const numericPrefixMatch = fileName.match(/^\d+(?:-\d+)?_(.+)$/);
   if (numericPrefixMatch) {
     const insurerName = extractInsurerNameFromFolderName(folderName);
     if (insurerName) {
