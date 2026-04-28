@@ -530,28 +530,41 @@ function generateIndividualInsurerXml(
 }
 
 /**
- * [社保]資格取得 / [社保]資格喪失 フォルダ向けの命名情報フォールバック
+ * [社保]系の命名情報フォールバック対象マッピング
+ *
+ * フォルダ名のパターン（key）にマッチした場合、value の通知書名を
+ * 既定タイトル（`通知書` 等）の代わりに使用する。
+ */
+const SHAHO_TITLE_MAP: Array<{ pattern: RegExp; title: string }> = [
+  { pattern: /\[社保\]資格取得/,            title: '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書' },
+  { pattern: /\[社保\]資格喪失/,            title: '健康保険・厚生年金保険資格喪失確認通知書' },
+  { pattern: /\[社保\]育児休業等申出書/,    title: '健康保険・厚生年金保険育児休業等取得者確認通知書' },
+  { pattern: /\[社保\]産前産後休業等申出書/, title: '健康保険・厚生年金保険産前産後休業取得者確認通知書' },
+];
+
+/**
+ * [社保]系フォルダ向けの命名情報フォールバック
  *
  * 背景:
- *  - DataRoot形式XMLや一部のN7100001で被保険者名がXMLから抽出できないケースで
+ *  - DataRoot形式XMLや一部のN7xxxxxで被保険者名がXMLから抽出できないケースで
  *    ファイル名が「様_xxx」となる
- *  - DataRoot形式の喪失で <TITLE> が無い場合、通知書名がデフォルトの「通知書」になる
+ *  - <TITLE> が無い／取得失敗時、通知書名がデフォルトの「通知書」になる
  *
- * 対策: フォルダ名 `{seq}_{会社名}_{被保険者名}_[社保]資格(取得|喪失)_...` から
- * 被保険者名と通知書名を補完する。
+ * 対策: フォルダ名 `{seq}_{会社名}_{被保険者名}_[社保]xxx_...` から
+ * 被保険者名と通知書名を補完する（SHAHO_TITLE_MAPに対応するパターンがある場合のみ）。
  */
 function applyShahoFolderNameFallbacks(
   info: NamingInfo,
   folderName: string
 ): NamingInfo {
-  const m = folderName.match(/\[社保\]資格(取得|喪失)/);
-  if (!m) return info;
-  const subType = m[1] as '取得' | '喪失';
-
-  const expectedTitle =
-    subType === '取得'
-      ? '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書'
-      : '健康保険・厚生年金保険資格喪失確認通知書';
+  let expectedTitle: string | null = null;
+  for (const { pattern, title } of SHAHO_TITLE_MAP) {
+    if (pattern.test(folderName)) {
+      expectedTitle = title;
+      break;
+    }
+  }
+  if (!expectedTitle) return info;
 
   // 通知書名: 空 or デフォルトフォールバック「通知書」のときに上書き
   const titleNeedsFix = !info.noticeTitle || info.noticeTitle === '通知書';
@@ -719,15 +732,18 @@ export async function processFolderDocuments(
  * 対象手続き（フォルダ名に含まれていれば対象）:
  *   - [雇保]資格取得
  *   - [雇保]資格喪失（「離職票交付あり」サブパターン含む）
+ *   - [雇保]育児休業出生後休業給付
+ *   - [雇保]育児時短就業給付
+ *   - [雇保]育児休業出生時休業給付
  *
  * パターン: {番号}_{会社名}_{被保険者名}_{手続き種別}...
  * 例:
  *   "0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_..." → "川村夏菜"
  *   "0014_株式会社1SEC_濱中 広宣_[雇保]資格取得_..."             → "濱中広宣"
+ *   "0020_株式会社1SEC_鈴木 花子_[雇保]育児休業出生後休業給付_..." → "鈴木花子"
  */
 function extractInsurerNameFromFolderName(folderName: string): string | null {
-  const isYakuhoTarget =
-    /\[雇保\]資格取得/.test(folderName) || /\[雇保\]資格喪失/.test(folderName);
+  const isYakuhoTarget = /\[雇保\](?:資格取得|資格喪失|育児休業出生後休業給付|育児時短就業給付|育児休業出生時休業給付)/.test(folderName);
   if (!isYakuhoTarget) return null;
 
   // パターン: 4桁の番号_会社名_被保険者名_...
