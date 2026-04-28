@@ -775,6 +775,7 @@ const ROUDOUHOKEN_FIXED_NAME_MAP: Array<{
 }> = [
   { pattern: /\[労保\]保険関係成立届/, fileName: '労働保険関係成立届.pdf' },
   { pattern: /\[労保\]名称所在地変更/, fileName: '労働保険名称所在地変更届.pdf' },
+  { pattern: /\[労保\]概算保険料申告\(継続\)/, fileName: '労働保険概算保険料申告書.pdf' },
 ];
 
 function getRoudouHokenFixedFilename(folderName: string): string | null {
