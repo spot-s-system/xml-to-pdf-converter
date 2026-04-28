@@ -780,6 +780,18 @@ function extractRoudouHokenKoubunshoInfo(
 }
 
 /**
+ * 旧バージョンの本コンバーターが出力した「元号略号始まりの日付付きPDF名」かを判定
+ *   例: `R08年01月25日_xxx.pdf` / `H30年04月_xxx.pdf` / `S64年12月25日_xxx.pdf`
+ *
+ * これらは過去の変換結果が再投入されたケースで、現行版が生成する
+ * 「令和8年1月25日_xxx.pdf」と内容が重複するため除外する。
+ */
+function isLegacyEraDatePrefixedPdf(fileName: string): boolean {
+  if (!fileName.toLowerCase().endsWith('.pdf')) return false;
+  return /^[SHR]\d{1,4}年\d{1,2}月(?:\d{1,2}日)?_/.test(fileName);
+}
+
+/**
  * 公文書フォルダで固定名にリネームするマッピング（労保・社保など）
  *
  * 対象は「公文書」フォルダのみ（コメントフォルダは対象外）。
@@ -880,9 +892,15 @@ export async function createResultZip(
         }
       }
 
-      // その他のファイルをコピー（PDFはリネーム処理を適用）
+      // その他のファイルをコピー（PDFはリネーム処理を適用、旧出力の重複は除外）
       if (folder.otherFiles) {
         for (const fileName of folder.otherFiles) {
+          // 過去のコンバーター出力（旧元号略号付き日付プレフィックス）はスキップ
+          if (isLegacyEraDatePrefixedPdf(fileName)) {
+            console.log(`Skipped legacy era-prefix PDF: ${fileName}`);
+            continue;
+          }
+
           // folderPathを使用（ネストされたZIPの一時ディレクトリにも対応）
           const sourcePath = path.join(folder.folderPath, fileName);
 
@@ -999,9 +1017,17 @@ export async function processFoldersToZip(
         }
       }
 
-      // その他ファイル（PDFはリネーム適用）
+      // その他ファイル（PDFはリネーム適用、旧バージョン出力の重複は除外）
       if (folder.otherFiles) {
         for (const fileName of folder.otherFiles) {
+          // 過去のコンバーター出力（旧元号略号付き日付プレフィックス）はスキップ
+          if (isLegacyEraDatePrefixedPdf(fileName)) {
+            callbacks?.onLog?.(
+              `[${folderNumber}/${total}]   ⏭️ Skipped legacy era-prefix PDF: ${truncateFileName(fileName, 60)}`
+            );
+            continue;
+          }
+
           const sourcePath = path.join(folder.folderPath, fileName);
           try {
             await fs.access(sourcePath);
