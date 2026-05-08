@@ -8,7 +8,7 @@ import path from 'path';
 import { tmpdir } from 'os';
 import JSZip from 'jszip';
 import { detectProcedureType } from './procedure-detector';
-import { extractNamingInfo } from './xml-info-extractor';
+import { extractNamingInfo, NamingInfo } from './xml-info-extractor';
 import { generateSafePdfFileName, generateIndividualPdfFileName } from './pdf-naming';
 import { applyXsltTransformation } from './xslt-processor';
 import { generatePdfFromHtml } from './pdf-generator';
@@ -529,6 +529,94 @@ function generateIndividualInsurerXml(
 }
 
 /**
+ * [社保]系の命名情報フォールバック対象マッピング
+ *
+ * フォルダ名のパターン（key）にマッチした場合、value の通知書名を
+ * 既定タイトル（`通知書` 等）の代わりに使用する。
+ * isPerCompany: true は会社単位の手続き（被保険者名を付与しない）。
+ */
+const SHAHO_TITLE_MAP: Array<{
+  pattern: RegExp;
+  title: string;
+  isPerCompany?: boolean;
+}> = [
+  { pattern: /\[社保\]資格取得/,            title: '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書' },
+  { pattern: /\[社保\]資格喪失/,            title: '健康保険・厚生年金保険資格喪失確認通知書' },
+  { pattern: /\[社保\]育児休業等申出書/,    title: '健康保険・厚生年金保険育児休業等取得者確認通知書' },
+  { pattern: /\[社保\]産前産後休業等申出書/, title: '健康保険・厚生年金保険産前産後休業取得者確認通知書' },
+  { pattern: /\[社保\]新規適用/,            title: '（社会保険）適用通知書', isPerCompany: true },
+];
+
+/**
+ * [社保]系フォルダ向けの命名情報フォールバック
+ *
+ * 背景:
+ *  - DataRoot形式XMLや一部のN7xxxxxで被保険者名がXMLから抽出できないケースで
+ *    ファイル名が「様_xxx」となる
+ *  - <TITLE> が無い／取得失敗時、通知書名がデフォルトの「通知書」になる
+ *
+ * 対策: フォルダ名 `{seq}_{会社名}_{被保険者名}_[社保]xxx_...` から
+ * 被保険者名と通知書名を補完する（SHAHO_TITLE_MAPに対応するパターンがある場合のみ）。
+ */
+function applyShahoFolderNameFallbacks(
+  info: NamingInfo,
+  folderName: string
+): NamingInfo {
+  let entry: { title: string; isPerCompany?: boolean } | null = null;
+  for (const e of SHAHO_TITLE_MAP) {
+    if (e.pattern.test(folderName)) {
+      entry = { title: e.title, isPerCompany: e.isPerCompany };
+      break;
+    }
+  }
+  if (!entry) return info;
+
+  // 通知書名: 空 or デフォルトフォールバック「通知書」のときに上書き
+  const titleNeedsFix = !info.noticeTitle || info.noticeTitle === '通知書';
+  const fixedTitle = titleNeedsFix ? entry.title : info.noticeTitle;
+
+  // 会社単位の手続き: 被保険者名を付与しない（クリアして通知書名のみで生成）
+  if (entry.isPerCompany) {
+    return {
+      ...info,
+      firstInsurerName: '',
+      insurerCount: 0,
+      allInsurers: [],
+      noticeTitle: fixedTitle,
+    };
+  }
+
+  // 被保険者名: 手続きタグ `_[社保]xxx_` の直前のフィールドから取得（前後trimのみ、内部スペース保持）
+  // 4フィールド「seq_会社_名前_[社保]xxx」と5フィールド「seq_会社_番号_名前_[社保]xxx」の双方に対応
+  const folderInsurerMatch = folderName.match(/_([^_]+)_\[社保\][^_]*_/);
+  const folderInsurerName = folderInsurerMatch
+    ? folderInsurerMatch[1].trim()
+    : '';
+
+  // allInsurersの空名前を埋める
+  const fixedAllInsurers = (info.allInsurers ?? []).map((insurer) => ({
+    ...insurer,
+    name: insurer.name && insurer.name.trim() ? insurer.name : folderInsurerName,
+  }));
+
+  // 完全に空の場合はフォルダ名から1人作る
+  if (fixedAllInsurers.length === 0 && folderInsurerName) {
+    fixedAllInsurers.push({ name: folderInsurerName });
+  }
+
+  return {
+    ...info,
+    firstInsurerName:
+      info.firstInsurerName && info.firstInsurerName.trim()
+        ? info.firstInsurerName
+        : folderInsurerName,
+    insurerCount: Math.max(info.insurerCount ?? 0, fixedAllInsurers.length),
+    allInsurers: fixedAllInsurers,
+    noticeTitle: fixedTitle,
+  };
+}
+
+/**
  * 1つのフォルダ内のドキュメントをPDF化
  */
 async function processFolderDocuments(
@@ -555,11 +643,15 @@ async function processFolderDocuments(
     // 手続き種別を判定
     const procedureInfo = detectProcedureType(xmlContent);
 
-    // 命名情報を抽出
-    const namingInfo = extractNamingInfo(
+    // 命名情報を抽出（フォルダ名ベースのフォールバック適用）
+    const rawNamingInfo = extractNamingInfo(
       xmlContent,
       procedureInfo.type,
       kagazmiXmlContent
+    );
+    const namingInfo = applyShahoFolderNameFallbacks(
+      rawNamingInfo,
+      folder.folderName
     );
 
     // PDF生成戦略に応じて処理を分岐
@@ -653,45 +745,175 @@ async function processFolderDocuments(
 
 /**
  * フォルダ名から被保険者名を抽出
- * パターン: {番号}_{会社名}_{被保険者名}_{手続き種別}...
- * 例: "0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_..." → "川村夏菜"
  *
- * 重要: 「離職票交付あり」がフォルダ名に含まれている場合のみ被保険者名を返す
+ * 対象手続き（フォルダ名に含まれていれば対象）:
+ *   - [雇保]資格取得
+ *   - [雇保]資格喪失（「離職票交付あり」サブパターン含む）
+ *   - [雇保]育児休業出生後休業給付
+ *   - [雇保]育児時短就業給付
+ *   - [雇保]育児休業出生時休業給付
+ *
+ * 抽出ルール: 手続きタグ `_[雇保]xxx_` の **直前** のフィールドを被保険者名とする。
+ * これにより以下の両方の構造に対応：
+ *   - 4フィールド: {番号}_{会社名}_{被保険者名}_{手続き種別}
+ *   - 5フィールド: {番号}_{会社名}_{被保険者番号}_{被保険者名}_{手続き種別}
+ *
+ * 例:
+ *   "0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_..."          → "川村夏菜"
+ *   "0001_株式会社A_2971676_鈴木 花子_[雇保]育児休業出生後休業給付_..."        → "鈴木花子"
  */
 function extractInsurerNameFromFolderName(folderName: string): string | null {
-  // 「離職票交付あり」が含まれていない場合は null を返す
-  if (!folderName.includes('離職票交付あり')) {
-    return null;
-  }
+  const isYakuhoTarget = /\[雇保\](?:資格取得|資格喪失|育児休業出生後休業給付|育児時短就業給付|育児休業出生時休業給付)/.test(folderName);
+  if (!isYakuhoTarget) return null;
 
-  // パターン: 4桁の番号_会社名_被保険者名_...
-  const match = folderName.match(/^\d{4}_[^_]+_([^_]+)_/);
+  // 「_{被保険者名}_[雇保]手続き種別_」の直前フィールドを取得
+  // 内部の半角/全角スペースは保持し、前後のみtrim
+  const match = folderName.match(/_([^_]+)_\[雇保\][^_]*_/);
   if (match) {
-    // 被保険者名を抽出し、スペースを削除
-    return match[1].replace(/\s+/g, '');
+    return match[1].trim();
+  }
+  return null;
+}
+
+/**
+ * フォルダ名から「[労保]年度更新公文書」のリネーム情報を抽出
+ *
+ * 対象パターン:
+ *   {seq}_{company}_[労保]年度更新{?(建設)}_{14桁以上の年月日時刻}_公文書_{n}
+ * 例:
+ *   0001_xxx_[労保]年度更新_202507071232247301_公文書_4 → 令和7年（建設なし）
+ *   0011_xxx_[労保]年度更新(建設)_202507031133539941_公文書_2 → 令和7年（建設あり）
+ *
+ * 「コメント」フォルダはリネーム対象外なのでnullを返す。
+ */
+function extractRoudouHokenKoubunshoInfo(
+  folderName: string
+): { reiwaYear: number; isKensetsu: boolean } | null {
+  const match = folderName.match(
+    /\[労保\]年度更新(\(建設\))?_(\d{4})\d{10,}_公文書_/
+  );
+  if (!match) return null;
+  const seireki = parseInt(match[2], 10);
+  const reiwa = seireki - 2018; // 2019 = 令和元年(1)
+  if (reiwa < 1) return null;
+  return { reiwaYear: reiwa, isKensetsu: !!match[1] };
+}
+
+/**
+ * [社保]系の公文書フォルダで「{被保険者名}様_{固定通知書名}.pdf」にリネームするマッピング
+ *
+ * SHAHO_TITLE_MAP は PDF生成時の命名フォールバックに使われるが、
+ * このマップは既存PDF（`otherFiles`）のリネーム時に使われる。
+ * フォルダにXML/XSLが無く既存PDFが「通知書.pdf」のような名前で同梱されているケースを救済する。
+ */
+const SHAHO_PER_PERSON_RENAME_MAP: Array<{
+  pattern: RegExp;
+  title: string;
+}> = [
+  { pattern: /\[社保\]育児休業等申出書/,    title: '健康保険・厚生年金保険育児休業等取得者確認通知書' },
+  { pattern: /\[社保\]産前産後休業等申出書/, title: '健康保険・厚生年金保険産前産後休業取得者確認通知書' },
+];
+
+function getShahoPerPersonRenameTitle(folderName: string): string | null {
+  if (!/_公文書_/.test(folderName)) return null;
+  for (const { pattern, title } of SHAHO_PER_PERSON_RENAME_MAP) {
+    if (pattern.test(folderName)) return title;
+  }
+  return null;
+}
+
+function extractInsurerNameFromShahoFolder(folderName: string): string | null {
+  const match = folderName.match(/_([^_]+)_\[社保\][^_]*_/);
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * 旧バージョンの本コンバーターが出力した「元号略号始まりの日付付きPDF名」かを判定
+ *   例: `R08年01月25日_xxx.pdf` / `H30年04月_xxx.pdf` / `S64年12月25日_xxx.pdf`
+ *
+ * これらは過去の変換結果が再投入されたケースで、現行版が生成する
+ * 「令和8年1月25日_xxx.pdf」と内容が重複するため除外する。
+ */
+function isLegacyEraDatePrefixedPdf(fileName: string): boolean {
+  if (!fileName.toLowerCase().endsWith('.pdf')) return false;
+  return /^[SHR]\d{1,4}年\d{1,2}月(?:\d{1,2}日)?_/.test(fileName);
+}
+
+/**
+ * 公文書フォルダで固定名にリネームするマッピング（労保・社保など）
+ *
+ * 対象は「公文書」フォルダのみ（コメントフォルダは対象外）。
+ * 必要に応じてエントリを追加してください。
+ */
+const FIXED_NAME_MAP: Array<{
+  pattern: RegExp;
+  fileName: string;
+}> = [
+  { pattern: /\[労保\]保険関係成立届/, fileName: '労働保険関係成立届.pdf' },
+  { pattern: /\[労保\]名称所在地変更/, fileName: '労働保険名称所在地変更届.pdf' },
+  { pattern: /\[労保\]概算保険料申告\(継続\)/, fileName: '労働保険概算保険料申告書.pdf' },
+  { pattern: /\[社保\]新規適用/, fileName: '（社会保険）適用通知書.pdf' },
+];
+
+function getFixedKoubunshoFilename(folderName: string): string | null {
+  if (!/_公文書_/.test(folderName)) return null;
+  for (const { pattern, fileName } of FIXED_NAME_MAP) {
+    if (pattern.test(folderName)) return fileName;
   }
   return null;
 }
 
 /**
  * PDFファイル名を必要に応じてリネーム
- * 数字で始まるPDFファイルの場合、数字部分を被保険者名に置き換える
- * 例: "2501793096_雇用保険被保険者資格喪失確認通知書.pdf" → "川村夏菜様_雇用保険被保険者資格喪失確認通知書.pdf"
+ *
+ * リネームルール（優先順）:
+ *   1. [労保]年度更新の公文書フォルダ:
+ *        フォルダ内の **全PDF** を `令和{n}年度_労働保険概算・確定保険料申告書{(建設)?}.pdf` に統一
+ *        （元ファイル名の形式は問わない）
+ *   2. 固定名マッピング（労保・社保の各公文書フォルダ・会社単位）:
+ *        フォルダ内の **全PDF** をマッピング先の固定ファイル名に統一
+ *   3. [社保]育児休業等申出書 / [社保]産前産後休業等申出書（公文書）:
+ *        フォルダ内の **全PDF** を `{被保険者名}様_{固定通知書名}.pdf` に統一
+ *   4. [雇保]資格取得 / [雇保]資格喪失（離職票交付あり含む）/ 育児系フォルダ:
+ *        数字で始まるPDFの数字部分を被保険者名で置換し「{name}様_」を付与
+ *   5. それ以外:
+ *        そのまま
  */
-function renamePdfIfNeeded(fileName: string, insurerName: string | null): string {
-  // PDFファイルでない場合、または被保険者名がない場合はそのまま返す
-  if (!fileName.toLowerCase().endsWith('.pdf') || !insurerName) {
-    return fileName;
+function renamePdfIfNeeded(fileName: string, folderName: string): string {
+  if (!fileName.toLowerCase().endsWith('.pdf')) return fileName;
+
+  // ルール1: 労働保険年度更新（公文書）— ファイル名形式は問わない
+  const roudouHoken = extractRoudouHokenKoubunshoInfo(folderName);
+  if (roudouHoken) {
+    const suffix = roudouHoken.isKensetsu ? '(建設)' : '';
+    return `令和${roudouHoken.reiwaYear}年度_労働保険概算・確定保険料申告書${suffix}.pdf`;
   }
 
-  // 数字で始まるPDFファイルのみリネーム対象
-  const match = fileName.match(/^\d+_(.+)$/);
-  if (match) {
-    // 数字部分を被保険者名に置き換え（「様」を付与）
-    return `${insurerName}様_${match[1]}`;
+  // ルール2: 公文書の固定名マッピング（労保系/社保新規適用など会社単位の手続き）
+  const fixedName = getFixedKoubunshoFilename(folderName);
+  if (fixedName) {
+    return fixedName;
   }
 
-  // パターンに合わない場合はそのまま返す
+  // ルール3: 社保 育休/産休（公文書）— ファイル名形式は問わない
+  const shahoTitle = getShahoPerPersonRenameTitle(folderName);
+  if (shahoTitle) {
+    const insurerName = extractInsurerNameFromShahoFolder(folderName);
+    if (insurerName) {
+      return `${insurerName}様_${shahoTitle}.pdf`;
+    }
+  }
+
+  // ルール4: 雇用保険 資格取得/喪失/育児系 — 数字始まり（ハイフン付き連番も含む）
+  // 例: `2501793096_xxx.pdf` / `202602021152166333-0001_xxx.pdf`
+  const numericPrefixMatch = fileName.match(/^\d+(?:-\d+)?_(.+)$/);
+  if (numericPrefixMatch) {
+    const insurerName = extractInsurerNameFromFolderName(folderName);
+    if (insurerName) {
+      return `${insurerName}様_${numericPrefixMatch[1]}`;
+    }
+  }
+
   return fileName;
 }
 
@@ -708,9 +930,6 @@ export async function createResultZip(
     // "root"フォルダの場合は特別扱い（ルートにファイルを配置）
     const isRootFolder = folder.folderName === 'root';
     const folderPrefix = isRootFolder ? '' : `${folder.folderName}/`;
-
-    // フォルダ名から被保険者名を抽出（PDFリネーム用）
-    const insurerName = extractInsurerNameFromFolderName(folder.folderName);
 
     if (folder.success && folder.pdfs) {
       // PDFを追加
@@ -733,9 +952,15 @@ export async function createResultZip(
         }
       }
 
-      // その他のファイルをコピー（PDFはリネーム処理を適用）
+      // その他のファイルをコピー（PDFはリネーム処理を適用、旧出力の重複は除外）
       if (folder.otherFiles) {
         for (const fileName of folder.otherFiles) {
+          // 過去のコンバーター出力（旧元号略号付き日付プレフィックス）はスキップ
+          if (isLegacyEraDatePrefixedPdf(fileName)) {
+            console.log(`Skipped legacy era-prefix PDF: ${fileName}`);
+            continue;
+          }
+
           // folderPathを使用（ネストされたZIPの一時ディレクトリにも対応）
           const sourcePath = path.join(folder.folderPath, fileName);
 
@@ -743,7 +968,7 @@ export async function createResultZip(
             const fileBuffer = await fs.readFile(sourcePath);
 
             // PDFファイルの場合、必要に応じてリネーム
-            const targetFileName = renamePdfIfNeeded(fileName, insurerName);
+            const targetFileName = renamePdfIfNeeded(fileName, folder.folderName);
 
             zip.file(`${folderPrefix}${targetFileName}`, fileBuffer);
           } catch (error) {

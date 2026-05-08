@@ -7,6 +7,27 @@ import { ProcedureType } from './procedure-detector';
 import { NamingInfo } from './xml-info-extractor';
 
 /**
+ * 元号略号付き日付を完全名・ゼロパディング除去形式に整形
+ *   `R08年04月`     → `令和8年4月{suffix}`
+ *   `R08年01月25日` → `令和8年1月25日{suffix}`
+ * 該当しないフォーマットはそのまま返す。
+ */
+function formatEraDateForFilename(date: string, suffix: string = ''): string {
+  const eraMap: Record<string, string> = { S: '昭和', H: '平成', R: '令和' };
+  const ymd = date.match(/^([SHR])(\d+)年(\d+)月(\d+)日$/);
+  if (ymd) {
+    const era = eraMap[ymd[1]] ?? ymd[1];
+    return `${era}${parseInt(ymd[2], 10)}年${parseInt(ymd[3], 10)}月${parseInt(ymd[4], 10)}日${suffix}`;
+  }
+  const ym = date.match(/^([SHR])(\d+)年(\d+)月$/);
+  if (ym) {
+    const era = eraMap[ym[1]] ?? ym[1];
+    return `${era}${parseInt(ym[2], 10)}年${parseInt(ym[3], 10)}月${suffix}`;
+  }
+  return date;
+}
+
+/**
  * PDF命名規則に従ってファイル名を生成
  */
 export function generatePdfFileName(
@@ -21,9 +42,12 @@ export function generatePdfFileName(
 
   switch (procedureType) {
     case '月額変更':
-      // 改定年月_被保険者名様_通知書名.pdf
+      // 令和n年m月改定_被保険者名様_通知書名.pdf
       if (info.applicableDate || info.revisionDate) {
-        const datePrefix = info.applicableDate || info.revisionDate;
+        const datePrefix = formatEraDateForFilename(
+          (info.applicableDate || info.revisionDate)!,
+          '改定'
+        );
 
         if (info.firstInsurerName) {
           if (info.insurerCount > 1) {
@@ -69,16 +93,17 @@ export function generatePdfFileName(
       return `${info.noticeTitle}.pdf`;
 
     case '賞与':
-      // 賞与支払年月日_被保険者名様_通知書名.pdf
+      // 令和n年m月d日_被保険者名様_通知書名.pdf
       if (info.bonusPaymentDate) {
+        const bonusDatePrefix = formatEraDateForFilename(info.bonusPaymentDate);
         if (info.firstInsurerName) {
           if (info.insurerCount > 1) {
             const othersCount = info.insurerCount - 1;
-            return `${info.bonusPaymentDate}_${info.firstInsurerName}様他${othersCount}名_${info.noticeTitle}.pdf`;
+            return `${bonusDatePrefix}_${info.firstInsurerName}様他${othersCount}名_${info.noticeTitle}.pdf`;
           }
-          return `${info.bonusPaymentDate}_${info.firstInsurerName}様_${info.noticeTitle}.pdf`;
+          return `${bonusDatePrefix}_${info.firstInsurerName}様_${info.noticeTitle}.pdf`;
         }
-        return `${info.bonusPaymentDate}_${info.noticeTitle}.pdf`;
+        return `${bonusDatePrefix}_${info.noticeTitle}.pdf`;
       }
 
       // 賞与支払年月日が取得できない場合
