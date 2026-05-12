@@ -30,9 +30,16 @@ export default function Home() {
   const [folderProgress, setFolderProgress] = useState<{ current: number; total: number } | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  // 自動スクロール
+  // ログ末尾への自動スクロール（ログコンテナの内部スクロールのみ動かす）
+  //
+  // 以前は logsEndRef.current?.scrollIntoView() を使っていたが、これだと
+  // ページ全体がログ末尾の位置までスクロールし、アップロードカード内の
+  // 進捗バー（変換の経過の帯）が画面外に押し出されてしまう。
+  // ログコンテナ（max-h-[400px] overflow-y-auto の親要素）の scrollTop を
+  // 直接 scrollHeight に揃えて、ページ全体のスクロールは触らないようにする。
   useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = logsEndRef.current?.parentElement;
+    if (container) container.scrollTop = container.scrollHeight;
   }, [logs]);
 
   // 経過時間を1秒ごとに更新（変換中のみ）
