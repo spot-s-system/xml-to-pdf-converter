@@ -59,10 +59,14 @@ export function adjustXslForA4(xslContent: string): string {
   // で中央寄せされる（Edge の Print to PDF と同じ挙動）。
   // body に max-width を付けると左寄せに固定されてしまうため付けない。
   //
-  // padding-right で見た目の中央位置を左にオフセットする (約 2 文字分):
-  //   A4内寸 ~756px − padding-right 40px = 中央寄せ計算上 ~716px のキャンバスとなり、
-  //   640px outline テーブルが視覚的に約 20px (≒ 2 文字分) 左寄りに配置される。
-  //   これで Edge の Print to PDF と見比べたときに左右マージンのバランスが揃う。
+  // 印刷時のみ zoom で 88% に縮小:
+  //   元 XSL は 640px 想定で組まれているが、A4 用紙上では端まで詰まって
+  //   見え、Edge の Print to PDF と比べて外枠線との距離が小さい。
+  //   body 全体を zoom で縮小して、外枠との余白を確保しつつ全体のバランスを
+  //   ユーザー指定（添付画像）に近づける。
+  //   zoom は Chromium の PDF レンダリング時に確実にスケーリングが効き、
+  //   transform: scale と違って後続要素のレイアウト計算もスケーリング後の
+  //   サイズで行われるため、改ページ判定とも整合する。
   const pageStyles = `
     @page {
       size: A4;
@@ -71,7 +75,7 @@ export function adjustXslForA4(xslContent: string): string {
     @media print {
       body {
         margin: 0;
-        padding-right: 40px;
+        zoom: 0.88;
       }
     }
   `;

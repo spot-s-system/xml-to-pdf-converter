@@ -269,17 +269,23 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <FileText className="h-10 w-10 text-primary" />
-            <h1 className="text-4xl font-bold">公文書ZIP to PDF変換・リネームアプリ</h1>
-          </div>
-          <p className="text-muted-foreground">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4 md:p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* コンパクト hero: スクロール不要にするため最小限の高さに収める */}
+        <div className="text-center mb-4">
+          <h1 className="text-2xl md:text-3xl font-bold flex items-center justify-center gap-2">
+            <FileText className="h-6 w-6 md:h-7 md:w-7 text-primary" />
+            公文書ZIP to PDF変換・リネームアプリ
+          </h1>
+          <p className="text-xs md:text-sm text-muted-foreground mt-1">
             公文書ZIPファイルをアップロードして、個別PDFを含むZIPファイルを生成。同梱PDFのリネームも自動で行います。
           </p>
         </div>
+
+        {/* 2カラムレイアウト: アップロード (左, 3/5) + 使い方 (右, 2/5)
+            lg未満は1カラムに折り返して縦並びになる */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-6">
+          <div className="lg:col-span-3 space-y-4 lg:space-y-6">
 
         {/* アップロードカード */}
         <Card className="shadow-lg">
@@ -357,9 +363,9 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        {/* リアルタイムログ（アップロードカードの下に表示） */}
+        {/* リアルタイムログ（アップロードカードの下、同じ左カラム内に表示） */}
         {(logs.length > 0 || isConverting) && (
-          <Card className="shadow-lg mt-6">
+          <Card className="shadow-lg">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -412,17 +418,20 @@ export default function Home() {
           </Card>
         )}
 
-        {/* 使い方 */}
-        <div className="mt-8 p-6 bg-white dark:bg-slate-800 rounded-lg shadow">
-          <h2 className="text-lg font-semibold mb-3">使い方</h2>
-          <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
+          </div>{/* /lg:col-span-3 (左カラム終端) */}
+
+          {/* 右カラム: 使い方 + 対応手続き種別 */}
+          <div className="lg:col-span-2">
+        <div className="p-4 lg:p-5 bg-white dark:bg-slate-800 rounded-lg shadow lg:sticky lg:top-4">
+          <h2 className="text-base lg:text-lg font-semibold mb-2">使い方</h2>
+          <ol className="list-decimal list-inside space-y-1 text-xs lg:text-sm text-muted-foreground">
             <li>公文書ZIPファイルをドラッグ&ドロップまたはクリックして選択</li>
             <li>「一括変換」ボタンをクリック</li>
             <li>処理状況がリアルタイムでログに表示されます</li>
             <li>変換されたPDFが自動的にダウンロードされます</li>
           </ol>
 
-          <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
+          <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg max-h-[60vh] overflow-y-auto">
             <h3 className="text-sm font-semibold mb-2 text-blue-900 dark:text-blue-100">
               対応手続き種別ごとの処理ロジック
             </h3>
@@ -647,10 +656,12 @@ export default function Home() {
               <div className="text-xs text-blue-800/80 dark:text-blue-200/80 pt-2 px-1">
                 <span className="text-green-700 dark:text-green-400 font-semibold">✓</span> 自動処理あり / <span className="text-amber-700 dark:text-amber-400 font-semibold">✗</span> 自動処理なし（既存PDFは元名のまま残置）
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+            </div>{/* /text-xs space-y-2 wrapper */}
+          </div>{/* /対応手続き box (max-h-[60vh] overflow-y-auto) */}
+        </div>{/* /使い方 container (p-4 lg:p-5 bg-white...) */}
+          </div>{/* /lg:col-span-2 (右カラム終端) */}
+        </div>{/* /grid grid-cols-1 lg:grid-cols-5 */}
+      </div>{/* /max-w-7xl */}
+    </div>{/* /min-h-screen */}
   );
 }
