@@ -84,6 +84,31 @@ describe('extractFromSocialInsurance — 被保険者ブロックからの名前
     expect(info.firstInsurerName).toBe('田中 太郎');
   });
 
+  it('被保険者漢字氏名 が CDATA 空のとき被保険者カナ氏名へフォールバック (外国籍など)', () => {
+    // 漢字登録の無い外国人被保険者の典型ケース。
+    // 漢字氏名空 + カナ氏名フル の組み合わせで送られてくる。
+    const xml = `<?xml version="1.0"?><N7100001>
+      <_被保険者>
+        <被保険者漢字氏名><![CDATA[]]></被保険者漢字氏名>
+        <被保険者カナ氏名>ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞﾌｲﾝ ﾃﾚｽﾞ</被保険者カナ氏名>
+      </_被保険者>
+    </N7100001>`;
+    const info = extractFromSocialInsurance(xml, '取得');
+    expect(info.firstInsurerName).toBe('ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞﾌｲﾝ ﾃﾚｽﾞ');
+    expect(info.insurerCount).toBe(1);
+  });
+
+  it('被用者漢字氏名 が空のとき被用者カナ氏名へフォールバック (70歳以上 + 外国籍)', () => {
+    const xml = `<?xml version="1.0"?><N7200001>
+      <_被保険者>
+        <被用者漢字氏名><![CDATA[]]></被用者漢字氏名>
+        <被用者カナ氏名>ﾀﾅｶ ﾀﾛｳ</被用者カナ氏名>
+      </_被保険者>
+    </N7200001>`;
+    const info = extractFromSocialInsurance(xml, '取得');
+    expect(info.firstInsurerName).toBe('ﾀﾅｶ ﾀﾛｳ');
+  });
+
   it('月額変更XMLから改定年月を抽出 (R07年09月)', () => {
     const xml = `<?xml version="1.0"?><N7140001>
       <_被保険者>

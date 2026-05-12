@@ -124,17 +124,34 @@ export function extractFromSocialInsurance(
     info.insurerCount = insurerBlocks.length;
 
     insurerBlocks.forEach((block) => {
-      // 70歳以上被用者の場合は被用者漢字氏名を使用
-      let nameMatch = block.match(/<被用者漢字氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被用者漢字氏名>/);
-      if (!nameMatch) {
-        // 通常の被保険者氏名
-        nameMatch = block.match(/<被保険者(?:漢字)?氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者(?:漢字)?氏名>/);
+      // 名前抽出の優先順位:
+      //   1. 被用者漢字氏名 (70歳以上)
+      //   2. 被保険者漢字氏名 / 被保険者氏名
+      //   3. 被用者カナ氏名  (70歳以上 漢字登録なし向けフォールバック)
+      //   4. 被保険者カナ氏名 (外国籍など漢字登録なしのケース向けフォールバック)
+      //
+      // 例: <被保険者漢字氏名><![CDATA[]]></被保険者漢字氏名> のように
+      // 漢字氏名が CDATA 空で送られてくる外国人被保険者ケースでは、
+      // カナ氏名 (ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞﾌｲﾝ ﾃﾚｽﾞ 等) にフォールバックする。
+      // 半角カナはファイル名に使用可能 (Windows/macOS とも対応)。
+      const pickName = (re: RegExp): string => {
+        const m = block.match(re);
+        return m ? m[1].trim() : '';
+      };
+      let name =
+        pickName(/<被用者漢字氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被用者漢字氏名>/) ||
+        pickName(/<被保険者(?:漢字)?氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者(?:漢字)?氏名>/);
+      if (!name) {
+        name =
+          pickName(/<被用者カナ氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被用者カナ氏名>/) ||
+          pickName(/<被保険者カナ氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者カナ氏名>/);
       }
+
       const numberMatch = block.match(/<被保険者番号>(.*?)<\/被保険者番号>/);
 
-      if (nameMatch) {
+      if (name) {
         const insurerInfo: InsurerInfo = {
-          name: nameMatch[1].trim(),
+          name,
           insurerNumber: numberMatch ? numberMatch[1].trim() : undefined,
         };
         info.allInsurers!.push(insurerInfo);
@@ -147,15 +164,19 @@ export function extractFromSocialInsurance(
     }
   } else {
     // _被保険者ブロックがない場合、従来の方法で抽出
-    const insurerNameMatch = xmlContent.match(
-      /<被保険者(?:漢字)?氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者(?:漢字)?氏名>/
-    );
-    if (insurerNameMatch) {
-      info.firstInsurerName = insurerNameMatch[1].trim();
+    // 漢字氏名 → カナ氏名 の順でフォールバック (外国人ケース対応)
+    const pickRootName = (re: RegExp): string => {
+      const m = xmlContent.match(re);
+      return m ? m[1].trim() : '';
+    };
+    const insurerName =
+      pickRootName(/<被保険者(?:漢字)?氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者(?:漢字)?氏名>/) ||
+      pickRootName(/<被保険者カナ氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者カナ氏名>/);
+
+    if (insurerName) {
+      info.firstInsurerName = insurerName;
       info.insurerCount = 1;
-      info.allInsurers!.push({
-        name: insurerNameMatch[1].trim(),
-      });
+      info.allInsurers!.push({ name: insurerName });
     }
   }
 

@@ -219,6 +219,31 @@ describe('integration: 資格取得_70歳以上.zip', async () => {
   );
 });
 
+describe('integration: 月変_外国籍含む.zip (漢字氏名空→カナ氏名フォールバック)', async () => {
+  const fixtureName = '月変_外国籍含む.zip';
+  const has = await fixtureExists(fixtureName);
+
+  it.skipIf(!has)(
+    '漢字氏名が CDATA 空の外国籍被保険者でも、カナ氏名でリネームされる',
+    async () => {
+      const { pdfs, outputDir } = await runPipeline(fixtureName, {
+        dumpLabel: '月変_外国籍含む',
+      });
+
+      // 「様_…」(被保険者名抜け) のPDFが残っていないこと
+      expect(pdfs.some((p) => /\/様_/.test(p) || /^様_/.test(p))).toBe(false);
+
+      // 半角カナ「ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞﾌｲﾝ ﾃﾚｽﾞ」のいずれかが含まれるPDF名で
+      // 出力されること (XML の <被保険者カナ氏名> フォールバック)
+      expect(pdfs.some((p) => /ｱﾙﾇ.*ﾌﾛｰﾚﾝｽ.*様_/.test(p))).toBe(true);
+
+      // eslint-disable-next-line no-console
+      console.log(`[dump] PDFs written to: ${outputDir}`);
+    },
+    600_000
+  );
+});
+
 describe('integration: 扶養.zip', async () => {
   const fixtureName = '扶養.zip';
   const has = await fixtureExists(fixtureName);
