@@ -418,7 +418,8 @@ export default function Home() {
           </Card>
         )}
 
-          </div>{/* /lg:col-span-3 (左カラム終端) */}
+          </div>
+          {/* 右カラム終端 */}
 
           {/* 右カラム: 使い方 + 対応手続き種別 */}
           <div className="lg:col-span-2">
@@ -656,12 +657,12 @@ export default function Home() {
               <div className="text-xs text-blue-800/80 dark:text-blue-200/80 pt-2 px-1">
                 <span className="text-green-700 dark:text-green-400 font-semibold">✓</span> 自動処理あり / <span className="text-amber-700 dark:text-amber-400 font-semibold">✗</span> 自動処理なし（既存PDFは元名のまま残置）
               </div>
-            </div>{/* /text-xs space-y-2 wrapper */}
-          </div>{/* /対応手続き box (max-h-[60vh] overflow-y-auto) */}
-        </div>{/* /使い方 container (p-4 lg:p-5 bg-white...) */}
-          </div>{/* /lg:col-span-2 (右カラム終端) */}
-        </div>{/* /grid grid-cols-1 lg:grid-cols-5 */}
-      </div>{/* /max-w-7xl */}
-    </div>{/* /min-h-screen */}
+            </div>
+          </div>
+        </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
