@@ -386,12 +386,37 @@ PuppeteerでHTMLをPDFに変換：
 `/api/convert-bulk-stream` では、Render無料枠（512MB）でのメモリ枯渇を防ぐため以下の最適化を実施：
 
 1. **base64データURLを廃止** — 結果ZIPは一時ファイルに書き出し、`/api/download/{id}` 経由でストリーミング配信
-2. **ZIP生成ストリーミング** — `JSZip.generateNodeStream({ streamFiles: true })` で大きなBufferを作らずディスクへ pipe
+2. **ZIP生成ストリーミング** — `JSZip.generateNodeStream({ streamFiles: false })` でディスクへ pipe（後述の互換性の都合で `streamFiles: false`）
 3. **PDF生成バッファの早期解放** — 生成PDFを即時ディスク書き出しし、JSZipには `ReadStream` 参照のみ保持
 4. **元ファイルもストリーム化** — XML/XSL/その他ファイルは `fs.createReadStream` でJSZipに渡す
 5. **ダウンロードIDの永続化** — `globalThis` + `Symbol.for` で Next.js dev のHMR/Route別コンパイルを跨いでMapを共有
 
 50MB規模の結果ZIPで **ピーク -150〜200MB** のメモリ削減効果。
+
+### Windowsエクスプローラ互換性（文字数超過対応）
+
+社内ユーザーの多くは結果ZIPを Windows エクスプローラ（標準の「すべて展開」）で開くため、以下2つの互換性対策を入れている。
+7-Zip / PowerShell `Expand-Archive` / macOS / Unix `unzip` ではどちらも問題なく開けるが、エクスプローラ単体で同等に動かないとサポート負担が大きいので、生成側で吸収する方針。
+
+#### 1. エントリパス長 89 文字制限
+
+実測（Windows 11, JSZip生成ZIP）で **`folderPrefix + fileName` の合計が 90 文字以上のエントリは、エクスプローラで開いたときに「エントリ 0 件」として認識され、「すべて展開」を押しても何も取り出せない**。
+発覚した経路: 外国籍被保険者（半角カナ氏名）+ 長い会社名フォルダで、`{被保険者名}様_{通知書名}.pdf` が 60 文字超 + フォルダ名 40 文字超 → 合計 100 文字超 → 結果ZIPがエクスプローラで空に見える。
+
+実装（`lib/bulk-zip-processor.ts` の `fitEntryNameToShellLimit()`）:
+
+- 合計が 89 文字を超えるエントリのみ、**被保険者名（`様` より前の部分）を末尾から切り詰める**
+- `様_{通知書名}.pdf` / `様他N名_{通知書名}.pdf` の suffix 部分は固定なので一切切らない
+- 省略記号（`…`）は付けず、収まる文字数で素直に切る
+- `様` を含まないファイル（月変統合PDF `R7年n月_…`、固定名公文書）は、拡張子を残してベース名末尾を切るフォールバック
+- フォルダ名側は触らない（入力ZIPの構造を尊重）。フォルダ名 + suffix だけで 89 文字超過するケースは諦めて素通し
+- 短縮が走った場合は進捗ログに `✂️ Shortened for Windows shell: ... → ...` を出力
+
+#### 2. Data Descriptor 形式 (`streamFiles: true`) を避ける
+
+`JSZip.generateNodeStream({ streamFiles: true })` だと各エントリの CRC/サイズを Local File Header に書かず末尾の Data Descriptor (General Purpose Bit Flag bit 3) として書く形式になる。
+ZIP 仕様上は正当だが **エクスプローラはこの形式を未サポート** で、やはりエントリ 0 件として見えてしまう。
+このため `streamFiles: false` に固定している（CRC/サイズ計算のためエントリ単位でバッファ化が必要になりメモリは増えるが、PDF1枚あたり数MBなので影響は許容範囲）。
 
 ## トラブルシューティング
 

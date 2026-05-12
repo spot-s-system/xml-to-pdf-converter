@@ -970,9 +970,10 @@ export async function createResultZip(
     const folderPrefix = isRootFolder ? '' : `${folder.folderName}/`;
 
     if (folder.success && folder.pdfs) {
-      // PDFを追加
+      // PDFを追加（Windowsエクスプローラ互換のため89文字制限を適用）
       for (const pdf of folder.pdfs) {
-        zip.file(`${folderPrefix}${pdf.name}`, pdf.buffer);
+        const safeName = fitEntryNameToShellLimit(folderPrefix, pdf.name);
+        zip.file(`${folderPrefix}${safeName}`, pdf.buffer);
       }
 
       // 元のXML/XSLファイルをコピー
@@ -983,7 +984,8 @@ export async function createResultZip(
 
           try {
             const fileBuffer = await fs.readFile(sourcePath);
-            zip.file(`${folderPrefix}${fileName}`, fileBuffer);
+            const safeName = fitEntryNameToShellLimit(folderPrefix, fileName);
+            zip.file(`${folderPrefix}${safeName}`, fileBuffer);
           } catch (error) {
             console.error(`Failed to copy XML/XSL file ${fileName}:`, error);
           }
@@ -1007,8 +1009,9 @@ export async function createResultZip(
 
             // PDFファイルの場合、必要に応じてリネーム
             const targetFileName = renamePdfIfNeeded(fileName, folder.folderName);
+            const safeName = fitEntryNameToShellLimit(folderPrefix, targetFileName);
 
-            zip.file(`${folderPrefix}${targetFileName}`, fileBuffer);
+            zip.file(`${folderPrefix}${safeName}`, fileBuffer);
           } catch (error) {
             console.error(`Failed to copy file ${fileName}:`, error);
           }
@@ -1037,6 +1040,71 @@ export async function createResultZip(
     compression: 'DEFLATE',
     compressionOptions: { level: 6 },
   });
+}
+
+/**
+ * Windows エクスプローラ (Shell.Application COM) が認識できる ZIP エントリパスの
+ * 最大長。これを超えるエントリは展開ダイアログでエントリ 0 件扱いになり、
+ * 「すべて展開」してもファイルが取り出せない。
+ *
+ * 実測 (Windows 11, JSZip 生成 ZIP):
+ *   - 89 文字: 認識される
+ *   - 90 文字: 認識されない (entries: 0)
+ *
+ * 7-Zip / PowerShell Expand-Archive / Unix unzip では問題なく展開できるが、
+ * 本サービスの主要ユーザーはエクスプローラを使うため、互換性のために
+ * 生成 ZIP のエントリパスを 89 文字以下に収める。
+ */
+const SHELL_ZIP_ENTRY_MAX_LEN = 89;
+
+/**
+ * フォルダプレフィックス + ファイル名 の合計が SHELL_ZIP_ENTRY_MAX_LEN を
+ * 超える場合、被保険者名（`様` より前の部分）の末尾を切り詰めて短縮する。
+ * 省略記号 (`…`) は付けず、収まる文字数までで素直に切る。
+ *
+ * 例:
+ *   folderPrefix = "0001_合同会社オ・フィル・デュ・ジャポン_アルヌ ﾌﾛｰﾚﾝｽ/" (約 47 chars)
+ *   fileName     = "ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞﾌｲﾝ ﾃﾚｽﾞ様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書.pdf" (約 64 chars)
+ *   合計 = 111 chars > 89 → 被保険者名側のみを切り詰めて:
+ *   "ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞ様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書.pdf"
+ *   (`様` 以降の通知書名は切らない)
+ *
+ * `様` を含まないファイル（例: "R7年9月_…通知書.pdf"、固定名公文書）は、
+ * 拡張子を保ったままベース名末尾から素直に切り詰める。
+ *
+ * フォルダ名側は触らない（入力 ZIP の構造を尊重するため）。
+ * フォルダ名 + 様以降 (固定suffix) だけで限界を超えるケース、または
+ * 被保険者名を 1 文字も残せないケースは諦めて素通し（ユーザーが
+ * 別の解凍ツールを使う必要がある）。
+ */
+function fitEntryNameToShellLimit(
+  folderPrefix: string,
+  fileName: string
+): string {
+  const totalLen = folderPrefix.length + fileName.length;
+  if (totalLen <= SHELL_ZIP_ENTRY_MAX_LEN) return fileName;
+
+  const budget = SHELL_ZIP_ENTRY_MAX_LEN - folderPrefix.length;
+  if (budget < 1) return fileName;
+
+  // 被保険者名 + 様[他N名]_通知書名.pdf の形式: `様` より前だけを切る
+  const samaIdx = fileName.indexOf('様');
+  if (samaIdx > 0) {
+    const namePart = fileName.slice(0, samaIdx);
+    const suffix = fileName.slice(samaIdx); // "様..." を含む固定部分
+    const nameBudget = budget - suffix.length;
+    if (nameBudget < 1) return fileName; // 被保険者名を 1 文字も残せない
+    if (namePart.length <= nameBudget) return fileName; // 既に収まっている
+    return namePart.slice(0, nameBudget) + suffix;
+  }
+
+  // `様` を含まないファイル: 拡張子を残してベース名末尾を切る
+  const dot = fileName.lastIndexOf('.');
+  const ext = dot >= 0 ? fileName.slice(dot) : '';
+  const base = dot >= 0 ? fileName.slice(0, dot) : fileName;
+  const baseBudget = budget - ext.length;
+  if (baseBudget < 1) return fileName;
+  return base.slice(0, baseBudget) + ext;
 }
 
 /**
@@ -1097,7 +1165,13 @@ export async function processFoldersToZip(
       for (const pdf of generated) {
         const tmpPdfPath = path.join(intermediatePdfDir, `${pdfCounter++}.pdf`);
         await fs.writeFile(tmpPdfPath, pdf.buffer);
-        zip.file(`${folderPrefix}${pdf.name}`, createReadStream(tmpPdfPath));
+        const safeName = fitEntryNameToShellLimit(folderPrefix, pdf.name);
+        if (safeName !== pdf.name) {
+          callbacks?.onLog?.(
+            `[${folderNumber}/${total}]   ✂️ Shortened for Windows shell: ${truncateFileName(pdf.name, 40)} → ${truncateFileName(safeName, 50)}`
+          );
+        }
+        zip.file(`${folderPrefix}${safeName}`, createReadStream(tmpPdfPath));
       }
       // ローカル参照を破棄してV8がBufferをGCできるようにする
       generated = null;
@@ -1108,7 +1182,8 @@ export async function processFoldersToZip(
           const sourcePath = path.join(folder.folderPath, fileName);
           try {
             await fs.access(sourcePath);
-            zip.file(`${folderPrefix}${fileName}`, createReadStream(sourcePath));
+            const safeName = fitEntryNameToShellLimit(folderPrefix, fileName);
+            zip.file(`${folderPrefix}${safeName}`, createReadStream(sourcePath));
           } catch (error) {
             console.error(`Failed to copy XML/XSL file ${fileName}:`, error);
           }
@@ -1135,7 +1210,13 @@ export async function processFoldersToZip(
                 `[${folderNumber}/${total}]   ✏️ Renamed: ${truncateFileName(fileName, 40)} → ${truncateFileName(targetFileName, 50)}`
               );
             }
-            zip.file(`${folderPrefix}${targetFileName}`, createReadStream(sourcePath));
+            const safeName = fitEntryNameToShellLimit(folderPrefix, targetFileName);
+            if (safeName !== targetFileName) {
+              callbacks?.onLog?.(
+                `[${folderNumber}/${total}]   ✂️ Shortened for Windows shell: ${truncateFileName(targetFileName, 40)} → ${truncateFileName(safeName, 50)}`
+              );
+            }
+            zip.file(`${folderPrefix}${safeName}`, createReadStream(sourcePath));
           } catch (error) {
             console.error(`Failed to copy file ${fileName}:`, error);
           }
@@ -1193,10 +1274,23 @@ export async function streamZipToTempFile(zip: JSZip): Promise<string> {
     writeStream.on('finish', settleResolve);
     writeStream.on('error', settleReject);
 
+    // streamFiles: false にしている理由:
+    //   streamFiles: true を指定すると JSZip は各エントリの Local File
+    //   Header にサイズと CRC を書かず、エントリ末尾に Data Descriptor
+    //   (General Purpose Bit Flag bit 3) として書き込む形式になる。
+    //   この形式は ZIP 仕様としては正当だが、Windows Explorer (Shell.Application
+    //   COM) はサポートしておらず、ZIP を開いても「エントリ 0 件」として
+    //   見え、すべて展開しようとしても何も展開されない。
+    //   PowerShell の Expand-Archive や Unix の unzip、7-Zip などは
+    //   問題なく読めるためテストでは気付きにくい。
+    //   streamFiles: false にすると CRC/サイズ計算のためエントリ全体を
+    //   一旦バッファ化する分メモリ使用量は増えるが、Windows Explorer での
+    //   展開互換性が確保できる。本サービスのユーザーはほぼ Windows で
+    //   既定のエクスプローラ展開を使うため、互換性を優先する。
     zip
       .generateNodeStream({
         type: 'nodebuffer',
-        streamFiles: true,
+        streamFiles: false,
         compression: 'DEFLATE',
         compressionOptions: { level: 6 },
       })
