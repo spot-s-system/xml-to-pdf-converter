@@ -219,6 +219,36 @@ describe('integration: 資格取得_70歳以上.zip', async () => {
   );
 });
 
+describe('integration: 扶養.zip', async () => {
+  const fixtureName = '扶養.zip';
+  const has = await fixtureExists(fixtureName);
+
+  it.skipIf(!has)(
+    '[社保]被扶養者異動 (7170003) の個別PDFが生成され、1ページ構成 (kyoji 同枠)',
+    async () => {
+      const { pdfs, pdfPageCounts, outputDir } = await runPipeline(fixtureName, {
+        dumpLabel: '扶養',
+      });
+
+      // 7170003 由来の出力
+      const p7170003 = pdfs.findIndex((p) =>
+        /様_健康保険被扶養者（異動）決定通知書\.pdf$/.test(p)
+      );
+      expect(p7170003).toBeGreaterThanOrEqual(0);
+
+      // 7170003 (扶養) は kyoji が outline 内に同居する設計のため 1 ページ。
+      // 過去に pre.kyouji の白スペース指定が Webkit 限定で Chromium にヒット
+      // せず、教示文テキストが横にあふれて外枠を突き抜ける不具合があった。
+      // この回帰を検出するため、ページ数を厳密に 1 で検証する。
+      expect(pdfPageCounts[p7170003]).toBe(1);
+
+      // eslint-disable-next-line no-console
+      console.log(`[dump] PDFs written to: ${outputDir}`);
+    },
+    300_000
+  );
+});
+
 describe('integration: 育児_社保雇保混在.zip', async () => {
   const fixtureName = '育児_社保雇保混在.zip';
   const has = await fixtureExists(fixtureName);

@@ -159,8 +159,14 @@ export function addPreTextWrapping(xslContent: string): string {
   // タグ風文字列を書くと XML パーサが開始タグと誤解釈してパース失敗する。
   // コメント内では HTML タグを書かないこと。
   const preStyles = `
-    /* Chromium で break-spaces を有効化 (元 XSL は Webkit 限定指定のみ) */
-    pre.oshirase {
+    /* Chromium で break-spaces を有効化 (元 XSL は Webkit 限定指定のみ)。
+       pre.oshirase: 右上「機構からのお知らせ」枠の改行制御。
+       pre.kyouji:   下部「不服があるとき」教示文枠の改行制御。
+                     7170003 (扶養) の XSL では kyoji が本体と同じ outline 内に
+                     入っており、これが折り返さないとページ右側に文字列が
+                     はみ出して外枠を突き抜けてしまう。 */
+    pre.oshirase,
+    pre.kyouji {
       white-space: break-spaces;
     }
 
