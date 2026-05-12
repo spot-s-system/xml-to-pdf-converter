@@ -53,14 +53,16 @@ export function extractNoticeTitle(
   if (rootTagMatch) {
     const rootTag = rootTagMatch[1];
     const documentTitles: Record<string, string> = {
+      'N7012001': '（社会保険）適用通知書',
       'N7100001': '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書',
       'N7130001': '健康保険・厚生年金保険被保険者標準報酬決定通知書',
       'N7140001': '健康保険・厚生年金保険被保険者標準報酬改定通知書',
       'N7150001': '健康保険・厚生年金保険被保険者賞与額決定通知書',
-      'N7160001': '賞与支払届',
       'N7170003': '健康保険被扶養者（異動）決定通知書',
+      'N7180001': '厚生年金保険70歳以上被用者該当および標準報酬月額相当額のお知らせ',
       'N7200001': '厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ',
       'N7210001': '厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ',
+      'N7220001': '厚生年金保険70歳以上被用者標準賞与額相当額のお知らせ',
     };
 
     if (documentTitles[rootTag]) {
@@ -183,11 +185,22 @@ export function extractFromSocialInsurance(
     }
   }
 
-  // 適用年月を抽出（月額変更用）
-  if (procedureType === '月額変更') {
-    const applicableEraMatch = xmlContent.match(/<適用年月_元号>(.*?)<\/適用年月_元号>/);
-    const applicableYearMatch = xmlContent.match(/<適用年月_年>(.*?)<\/適用年月_年>/);
-    const applicableMonthMatch = xmlContent.match(/<適用年月_月>(.*?)<\/適用年月_月>/);
+  // 適用年月を抽出（月額変更・算定基礎届で使用）
+  // ルート → なければ被保険者ブロックの順に試す
+  {
+    let applicableEraMatch = xmlContent.match(/<適用年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/適用年月_元号>/);
+    let applicableYearMatch = xmlContent.match(/<適用年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_年>/);
+    let applicableMonthMatch = xmlContent.match(/<適用年月_月>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_月>/);
+
+    if (!applicableEraMatch || !applicableYearMatch || !applicableMonthMatch) {
+      const firstInsurerBlock = xmlContent.match(/<_被保険者>[\s\S]*?<\/_被保険者>/);
+      if (firstInsurerBlock) {
+        const block = firstInsurerBlock[0];
+        applicableEraMatch = applicableEraMatch || block.match(/<適用年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/適用年月_元号>/);
+        applicableYearMatch = applicableYearMatch || block.match(/<適用年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_年>/);
+        applicableMonthMatch = applicableMonthMatch || block.match(/<適用年月_月>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_月>/);
+      }
+    }
 
     if (applicableEraMatch && applicableYearMatch && applicableMonthMatch) {
       const era = convertEraCode(applicableEraMatch[1]);

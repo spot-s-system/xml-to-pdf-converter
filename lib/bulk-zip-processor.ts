@@ -587,9 +587,10 @@ function applyShahoFolderNameFallbacks(
     };
   }
 
-  // 被保険者名: 手続きタグ `_[社保]xxx_` の直前のフィールドから取得（前後trimのみ、内部スペース保持）
+  // 被保険者名: 手続きタグ `_[社保]xxx` の直前のフィールドから取得（前後trimのみ、内部スペース保持）
   // 4フィールド「seq_会社_名前_[社保]xxx」と5フィールド「seq_会社_番号_名前_[社保]xxx」の双方に対応
-  const folderInsurerMatch = folderName.match(/_([^_]+)_\[社保\][^_]*_/);
+  // 手続きタグ以降の末尾 `_` は必須としない（OS等によるパス長切り詰めで末尾「・・・」になっても拾う）
+  const folderInsurerMatch = folderName.match(/_([^_]+)_\[社保\]/);
   const folderInsurerName = folderInsurerMatch
     ? folderInsurerMatch[1].trim()
     : '';
@@ -615,6 +616,28 @@ function applyShahoFolderNameFallbacks(
     allInsurers: fixedAllInsurers,
     noticeTitle: fixedTitle,
   };
+}
+
+/**
+ * [社保]算定基礎 フォルダの個別PDFに「令和{n}年度算定_」プレフィックスを付与
+ *
+ * 対象: 7130001 / 7200001 から生成される個別PDF（pdfStrategy='individual'経路）
+ * 年度: XMLの<適用年月>から元号略号「R{n}」のnを使用（算定基礎届は適用年月=9月のため、年=年度）
+ * 適用年月が抽出できないケースは元のファイル名のまま返す。
+ */
+function applyShahoSanteiKisoYearPrefix(
+  fileName: string,
+  folderName: string,
+  applicableDate: string | undefined
+): string {
+  if (!/\[社保\]算定基礎/.test(folderName)) return fileName;
+  if (!applicableDate) return fileName;
+
+  const match = applicableDate.match(/^R(\d+)年/);
+  if (!match) return fileName;
+
+  const year = parseInt(match[1], 10);
+  return `令和${year}年度算定_${fileName}`;
 }
 
 /**
@@ -689,10 +712,16 @@ export async function processFolderDocuments(
           const pdfBuffer = await generatePdfFromHtml(html);
 
           // 個別PDFファイル名を生成
-          const pdfFileName = generateIndividualPdfFileName(
+          const baseFileName = generateIndividualPdfFileName(
             procedureInfo.type,
             insurer.name,
             namingInfo.noticeTitle
+          );
+          // [社保]算定基礎フォルダでは「令和{n}年度算定_」プレフィックスを付与
+          const pdfFileName = applyShahoSanteiKisoYearPrefix(
+            baseFileName,
+            folder.folderName,
+            namingInfo.applicableDate
           );
 
           pdfs.push({
@@ -764,12 +793,19 @@ export async function processFolderDocuments(
  *   "0001_株式会社A_2971676_鈴木 花子_[雇保]育児休業出生後休業給付_..."        → "鈴木花子"
  */
 function extractInsurerNameFromFolderName(folderName: string): string | null {
-  const isYakuhoTarget = /\[雇保\](?:資格取得|資格喪失|育児休業出生後休業給付|育児時短就業給付|育児休業出生時休業給付)/.test(folderName);
+  // 手続き種別はパス長切り詰めで途中で切れている可能性があるため、頭文字レベル
+  // （資格 / 育）のプレフィックスでマッチさせる。
+  //   資格 → 資格取得 / 資格喪失
+  //   育   → 育児休業出生後休業給付 / 育児時短就業給付 / 育児休業出生時休業給付
+  //          ＋ 切り詰められた「育」「育児休業」等
+  // 高年齢雇用継続給付・介護休業給付金・教育訓練給付金などの他系統には誤マッチしない。
+  const isYakuhoTarget = /\[雇保\](?:資格|育)/.test(folderName);
   if (!isYakuhoTarget) return null;
 
-  // 「_{被保険者名}_[雇保]手続き種別_」の直前フィールドを取得
+  // 「_{被保険者名}_[雇保]手続き種別」の直前フィールドを取得
   // 内部の半角/全角スペースは保持し、前後のみtrim
-  const match = folderName.match(/_([^_]+)_\[雇保\][^_]*_/);
+  // 手続きタグ以降の末尾 `_` は必須としない（パス長切り詰めで末尾が「(離職・・・」のように切れても拾う）
+  const match = folderName.match(/_([^_]+)_\[雇保\]/);
   if (match) {
     return match[1].trim();
   }
@@ -824,7 +860,8 @@ function getShahoPerPersonRenameTitle(folderName: string): string | null {
 }
 
 function extractInsurerNameFromShahoFolder(folderName: string): string | null {
-  const match = folderName.match(/_([^_]+)_\[社保\][^_]*_/);
+  // 手続きタグ以降の末尾 `_` は必須としない（パス長切り詰めで末尾が切れたケースを救済）
+  const match = folderName.match(/_([^_]+)_\[社保\]/);
   return match ? match[1].trim() : null;
 }
 
