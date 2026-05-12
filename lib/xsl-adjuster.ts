@@ -4,9 +4,15 @@
  */
 
 // A4 dimensions at 96dpi
-// Adjusted to account for PDF margins (5mm left + 5mm right = ~38px)
-// Further reduced to ensure content doesn't get cut off on the right
-const A4_WIDTH_PX = 720; // Further reduced from 740 to provide even more margin
+// 公文書XSLは width=640px のレイアウトで組まれており、A4 (約 794px @ 96dpi、
+// 5mmマージン後 ~756px) に対しては余裕がある。以前は 640 → 720px (1.125倍) に
+// 拡大して横幅を埋めていたが、これによりテーブル全体の縦サイズも拡大して
+// A4 1ページに収まりきらなくなり、XSL 内の <br class="kaipage" /> +
+// page-break-after:always と相まって、被保険者1人あたり 1ページ余分に空白
+// ページが挟まる不具合が発生していた（Edge の Print to PDF では元の 640px
+// レイアウトのまま描画されるので発生しない）。
+// 拡大しない (scaleFactor = 1.0) ことで Edge と同等のレイアウトに揃える。
+const A4_WIDTH_PX = 640;
 // const A4_HEIGHT_PX = 1123; // 297mm at 96dpi (not currently used)
 
 // Common original widths in government documents
@@ -47,7 +53,22 @@ export function adjustXslForA4(xslContent: string): string {
     return `<col ${before}width="${newWidth}px"${after}>`;
   });
 
-  // Add responsive page styles
+  // A4 用の @page と body を設定。
+  // 元 XSL の outline テーブルは width=640px のまま描画され、内側の
+  //   table width="100%" → td align="center"
+  // で中央寄せされる（Edge の Print to PDF と同じ挙動）。
+  // body に max-width を付けると左寄せに固定されてしまうため付けない。
+  //
+  // 外枠 (.outline) を 640px → 720px に拡張:
+  //   元 XSL は `table.outline { width: 640px }` 指定で、内側の被保険者
+  //   データ表 (col width 合計が ~600px) が cellpadding="20px" 内に
+  //   ほぼ目一杯入り、外枠の右辺と内部表の右辺が見た目上重なる状態。
+  //   外枠幅を 80px 広げて 720px にすることで、内部表の左右に約 20px の
+  //   余白が生まれ、視覚的な重なりが解消される (ユーザー要望: 中央の表は
+  //   小さくせず外枠を大きく)。
+  //   高さは元のまま (height: 940px) なので、縦方向のページ量は変わらず
+  //   通知書本体 + 教示文 の 2 ページ構成を維持し、白紙ページが挟まる
+  //   余地はない。720px は A4 印刷可能領域 756px (5mm マージン) に収まる。
   const pageStyles = `
     @page {
       size: A4;
@@ -55,10 +76,12 @@ export function adjustXslForA4(xslContent: string): string {
     }
     @media print {
       body {
-        width: 100%;
-        max-width: ${A4_WIDTH_PX}px;
-        padding-right: 15px; /* Additional right padding - increased */
+        margin: 0;
       }
+    }
+    /* 外枠 .outline テーブル自体を横方向に拡張 */
+    table.outline {
+      width: 720px !important;
     }
   `;
 
@@ -110,76 +133,49 @@ export function fixHtmlTags(xslContent: string): string {
 }
 
 /**
- * Add text wrapping styles for pre tags to handle long text
+ * Add text wrapping styles for pre tags
+ *
+ * 設計方針:
+ *  元の XSL は Safari (Webkit) 限定で `pre.oshirase { white-space: break-spaces }` を
+ *  指定して右上「機構からのお知らせ」枠の改行を制御している。Chromium ベースの
+ *  Puppeteer はこのメディアクエリにヒットしないため、明示的に同じ挙動を付与する。
+ *
+ *  以前のバージョンはここで `word-break: break-all / overflow-wrap: anywhere /
+ *  max-width: 281px / overflow: hidden / font-size: 10px` 等を強制していたが、
+ *  これらは元 XSL の `font-size: 7pt; line-break: anywhere; word-wrap: break-word`
+ *  の意図を上書きし、(a) 右上枠の文章が文字単位でブツ切りになる、(b) セル高さが
+ *  伸びて A4 1ページ目があふれ、kyoji の page-break-after と相まって余分な空白
+ *  ページが挟まる、という2つの不具合を引き起こしていた（Edge の標準PDF出力では
+ *  発生しない）。
+ *
+ *  ここでは Edge と同等の見た目になるよう、元 XSL の指定を尊重し、
+ *  Chromium で `break-spaces` が効くようにする最小限の補強のみ行う。
  */
 export function addPreTextWrapping(xslContent: string): string {
   let adjusted = xslContent;
 
-  // Add CSS rule for pre.oshirase to enable text wrapping with Japanese text support
+  // 注意: ここに挿入するテキストは XSL の <style> 要素の中に入る。XSL を XML として
+  // パースする際、<style> は CDATA 扱いされないため、CSS コメント内に "<col" のような
+  // タグ風文字列を書くと XML パーサが開始タグと誤解釈してパース失敗する。
+  // コメント内では HTML タグを書かないこと。
   const preStyles = `
-    /* Japanese text wrapping for 機構からのお知らせ */
-    pre.oshirase {
-      white-space: pre-wrap !important;
-      word-wrap: break-word !important;
-      word-break: break-all !important;  /* Allow breaking anywhere in CJK text */
-      overflow-wrap: anywhere !important; /* More aggressive wrapping */
-      max-width: 281px !important;       /* 250px × 1.125 (scaled for A4 with even more margin) */
-      overflow: hidden !important;        /* Prevent overflow */
-      line-height: 1.3 !important;       /* Improve readability */
-      font-size: 10px !important;        /* Appropriate font size */
-    }
-
-    /* Japanese text wrapping for 教示文 */
+    /* Chromium で break-spaces を有効化 (元 XSL は Webkit 限定指定のみ)。
+       pre.oshirase: 右上「機構からのお知らせ」枠の改行制御。
+       pre.kyouji:   下部「不服があるとき」教示文枠の改行制御。
+                     7170003 (扶養) の XSL では kyoji が本体と同じ outline 内に
+                     入っており、これが折り返さないとページ右側に文字列が
+                     はみ出して外枠を突き抜けてしまう。 */
+    pre.oshirase,
     pre.kyouji {
-      white-space: pre-wrap !important;
-      word-wrap: break-word !important;
-      word-break: break-all !important;  /* Allow breaking anywhere in CJK text */
-      overflow-wrap: anywhere !important; /* More aggressive wrapping */
-      max-width: 645px !important;       /* 573px × 1.125 (scaled for A4 with even more margin) */
-      max-height: 171px !important;      /* 152px × 1.125 (scaled for A4 with even more margin) */
-      overflow: hidden !important;        /* Prevent overflow */
-      line-height: 1.15 !important;      /* Tighter line spacing */
-      font-size: 8px !important;         /* Smaller font to fit more text */
-      letter-spacing: -0.3px !important; /* Slightly tighter spacing for better fit */
+      white-space: break-spaces;
     }
 
-    /* General pre tag handling */
-    pre {
-      white-space: pre-wrap;
-      word-wrap: break-word;
-      overflow-wrap: break-word;
-    }
-
-    /* Fixed table layout to respect width constraints */
+    /* 元 XSL の col width 指定を尊重する */
     table {
-      table-layout: fixed !important;
-    }
-
-    /* Table cells containing oshirase content */
-    td:has(pre.oshirase), td > pre.oshirase {
-      max-width: 281px !important;     /* 250px × 1.125 (scaled for A4 with even more margin) */
-      word-break: break-all !important;
-      overflow-wrap: anywhere !important;
-    }
-
-    /* Table cells containing kyouji content */
-    td.kyouji, td:has(pre.kyouji) {
-      max-width: 645px !important;     /* 573px × 1.125 (scaled for A4 with even more margin) */
-      max-height: 171px !important;    /* 152px × 1.125 (scaled for A4 with even more margin) */
-      word-break: break-all !important;
-      overflow-wrap: anywhere !important;
-      overflow: hidden !important;
-      padding: 3px !important;
-    }
-
-    /* Fallback for browsers not supporting :has() */
-    td {
-      word-break: break-word;
-      overflow-wrap: break-word;
+      table-layout: fixed;
     }
   `;
 
-  // Insert before closing style tag (handle both cases)
   if (adjusted.match(/<\/STYLE>/i)) {
     adjusted = adjusted.replace(
       /<\/STYLE>/i,

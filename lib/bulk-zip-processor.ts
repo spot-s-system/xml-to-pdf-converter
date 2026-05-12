@@ -4,6 +4,7 @@
  */
 
 import fs from 'fs/promises';
+import { createReadStream } from 'fs';
 import path from 'path';
 import { tmpdir } from 'os';
 import JSZip from 'jszip';
@@ -586,9 +587,10 @@ function applyShahoFolderNameFallbacks(
     };
   }
 
-  // 被保険者名: 手続きタグ `_[社保]xxx_` の直前のフィールドから取得（前後trimのみ、内部スペース保持）
+  // 被保険者名: 手続きタグ `_[社保]xxx` の直前のフィールドから取得（前後trimのみ、内部スペース保持）
   // 4フィールド「seq_会社_名前_[社保]xxx」と5フィールド「seq_会社_番号_名前_[社保]xxx」の双方に対応
-  const folderInsurerMatch = folderName.match(/_([^_]+)_\[社保\][^_]*_/);
+  // 手続きタグ以降の末尾 `_` は必須としない（OS等によるパス長切り詰めで末尾「・・・」になっても拾う）
+  const folderInsurerMatch = folderName.match(/_([^_]+)_\[社保\]/);
   const folderInsurerName = folderInsurerMatch
     ? folderInsurerMatch[1].trim()
     : '';
@@ -617,9 +619,31 @@ function applyShahoFolderNameFallbacks(
 }
 
 /**
+ * [社保]算定基礎 フォルダの個別PDFに「令和{n}年度算定_」プレフィックスを付与
+ *
+ * 対象: 7130001 / 7200001 から生成される個別PDF（pdfStrategy='individual'経路）
+ * 年度: XMLの<適用年月>から元号略号「R{n}」のnを使用（算定基礎届は適用年月=9月のため、年=年度）
+ * 適用年月が抽出できないケースは元のファイル名のまま返す。
+ */
+function applyShahoSanteiKisoYearPrefix(
+  fileName: string,
+  folderName: string,
+  applicableDate: string | undefined
+): string {
+  if (!/\[社保\]算定基礎/.test(folderName)) return fileName;
+  if (!applicableDate) return fileName;
+
+  const match = applicableDate.match(/^R(\d+)年/);
+  if (!match) return fileName;
+
+  const year = parseInt(match[1], 10);
+  return `令和${year}年度算定_${fileName}`;
+}
+
+/**
  * 1つのフォルダ内のドキュメントをPDF化
  */
-async function processFolderDocuments(
+export async function processFolderDocuments(
   folder: FolderStructure
 ): Promise<GeneratedPdf[]> {
   const pdfs: GeneratedPdf[] = [];
@@ -688,10 +712,16 @@ async function processFolderDocuments(
           const pdfBuffer = await generatePdfFromHtml(html);
 
           // 個別PDFファイル名を生成
-          const pdfFileName = generateIndividualPdfFileName(
+          const baseFileName = generateIndividualPdfFileName(
             procedureInfo.type,
             insurer.name,
             namingInfo.noticeTitle
+          );
+          // [社保]算定基礎フォルダでは「令和{n}年度算定_」プレフィックスを付与
+          const pdfFileName = applyShahoSanteiKisoYearPrefix(
+            baseFileName,
+            folder.folderName,
+            namingInfo.applicableDate
           );
 
           pdfs.push({
@@ -762,13 +792,20 @@ async function processFolderDocuments(
  *   "0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_..."          → "川村夏菜"
  *   "0001_株式会社A_2971676_鈴木 花子_[雇保]育児休業出生後休業給付_..."        → "鈴木花子"
  */
-function extractInsurerNameFromFolderName(folderName: string): string | null {
-  const isYakuhoTarget = /\[雇保\](?:資格取得|資格喪失|育児休業出生後休業給付|育児時短就業給付|育児休業出生時休業給付)/.test(folderName);
+export function extractInsurerNameFromFolderName(folderName: string): string | null {
+  // 手続き種別はパス長切り詰めで途中で切れている可能性があるため、頭文字レベル
+  // （資格 / 育）のプレフィックスでマッチさせる。
+  //   資格 → 資格取得 / 資格喪失
+  //   育   → 育児休業出生後休業給付 / 育児時短就業給付 / 育児休業出生時休業給付
+  //          ＋ 切り詰められた「育」「育児休業」等
+  // 高年齢雇用継続給付・介護休業給付金・教育訓練給付金などの他系統には誤マッチしない。
+  const isYakuhoTarget = /\[雇保\](?:資格|育)/.test(folderName);
   if (!isYakuhoTarget) return null;
 
-  // 「_{被保険者名}_[雇保]手続き種別_」の直前フィールドを取得
+  // 「_{被保険者名}_[雇保]手続き種別」の直前フィールドを取得
   // 内部の半角/全角スペースは保持し、前後のみtrim
-  const match = folderName.match(/_([^_]+)_\[雇保\][^_]*_/);
+  // 手続きタグ以降の末尾 `_` は必須としない（パス長切り詰めで末尾が「(離職・・・」のように切れても拾う）
+  const match = folderName.match(/_([^_]+)_\[雇保\]/);
   if (match) {
     return match[1].trim();
   }
@@ -786,7 +823,7 @@ function extractInsurerNameFromFolderName(folderName: string): string | null {
  *
  * 「コメント」フォルダはリネーム対象外なのでnullを返す。
  */
-function extractRoudouHokenKoubunshoInfo(
+export function extractRoudouHokenKoubunshoInfo(
   folderName: string
 ): { reiwaYear: number; isKensetsu: boolean } | null {
   const match = folderName.match(
@@ -814,7 +851,7 @@ const SHAHO_PER_PERSON_RENAME_MAP: Array<{
   { pattern: /\[社保\]産前産後休業等申出書/, title: '健康保険・厚生年金保険産前産後休業取得者確認通知書' },
 ];
 
-function getShahoPerPersonRenameTitle(folderName: string): string | null {
+export function getShahoPerPersonRenameTitle(folderName: string): string | null {
   if (!/_公文書_/.test(folderName)) return null;
   for (const { pattern, title } of SHAHO_PER_PERSON_RENAME_MAP) {
     if (pattern.test(folderName)) return title;
@@ -822,8 +859,9 @@ function getShahoPerPersonRenameTitle(folderName: string): string | null {
   return null;
 }
 
-function extractInsurerNameFromShahoFolder(folderName: string): string | null {
-  const match = folderName.match(/_([^_]+)_\[社保\][^_]*_/);
+export function extractInsurerNameFromShahoFolder(folderName: string): string | null {
+  // 手続きタグ以降の末尾 `_` は必須としない（パス長切り詰めで末尾が切れたケースを救済）
+  const match = folderName.match(/_([^_]+)_\[社保\]/);
   return match ? match[1].trim() : null;
 }
 
@@ -834,7 +872,7 @@ function extractInsurerNameFromShahoFolder(folderName: string): string | null {
  * これらは過去の変換結果が再投入されたケースで、現行版が生成する
  * 「令和8年1月25日_xxx.pdf」と内容が重複するため除外する。
  */
-function isLegacyEraDatePrefixedPdf(fileName: string): boolean {
+export function isLegacyEraDatePrefixedPdf(fileName: string): boolean {
   if (!fileName.toLowerCase().endsWith('.pdf')) return false;
   return /^[SHR]\d{1,4}年\d{1,2}月(?:\d{1,2}日)?_/.test(fileName);
 }
@@ -855,7 +893,7 @@ const FIXED_NAME_MAP: Array<{
   { pattern: /\[社保\]新規適用/, fileName: '（社会保険）適用通知書.pdf' },
 ];
 
-function getFixedKoubunshoFilename(folderName: string): string | null {
+export function getFixedKoubunshoFilename(folderName: string): string | null {
   if (!/_公文書_/.test(folderName)) return null;
   for (const { pattern, fileName } of FIXED_NAME_MAP) {
     if (pattern.test(folderName)) return fileName;
@@ -879,7 +917,7 @@ function getFixedKoubunshoFilename(folderName: string): string | null {
  *   5. それ以外:
  *        そのまま
  */
-function renamePdfIfNeeded(fileName: string, folderName: string): string {
+export function renamePdfIfNeeded(fileName: string, folderName: string): string {
   if (!fileName.toLowerCase().endsWith('.pdf')) return fileName;
 
   // ルール1: 労働保険年度更新（公文書）— ファイル名形式は問わない
@@ -932,9 +970,10 @@ export async function createResultZip(
     const folderPrefix = isRootFolder ? '' : `${folder.folderName}/`;
 
     if (folder.success && folder.pdfs) {
-      // PDFを追加
+      // PDFを追加（Windowsエクスプローラ互換のため89文字制限を適用）
       for (const pdf of folder.pdfs) {
-        zip.file(`${folderPrefix}${pdf.name}`, pdf.buffer);
+        const safeName = fitEntryNameToShellLimit(folderPrefix, pdf.name);
+        zip.file(`${folderPrefix}${safeName}`, pdf.buffer);
       }
 
       // 元のXML/XSLファイルをコピー
@@ -945,7 +984,8 @@ export async function createResultZip(
 
           try {
             const fileBuffer = await fs.readFile(sourcePath);
-            zip.file(`${folderPrefix}${fileName}`, fileBuffer);
+            const safeName = fitEntryNameToShellLimit(folderPrefix, fileName);
+            zip.file(`${folderPrefix}${safeName}`, fileBuffer);
           } catch (error) {
             console.error(`Failed to copy XML/XSL file ${fileName}:`, error);
           }
@@ -969,8 +1009,9 @@ export async function createResultZip(
 
             // PDFファイルの場合、必要に応じてリネーム
             const targetFileName = renamePdfIfNeeded(fileName, folder.folderName);
+            const safeName = fitEntryNameToShellLimit(folderPrefix, targetFileName);
 
-            zip.file(`${folderPrefix}${targetFileName}`, fileBuffer);
+            zip.file(`${folderPrefix}${safeName}`, fileBuffer);
           } catch (error) {
             console.error(`Failed to copy file ${fileName}:`, error);
           }
@@ -999,6 +1040,265 @@ export async function createResultZip(
     compression: 'DEFLATE',
     compressionOptions: { level: 6 },
   });
+}
+
+/**
+ * Windows エクスプローラ (Shell.Application COM) が認識できる ZIP エントリパスの
+ * 最大長。これを超えるエントリは展開ダイアログでエントリ 0 件扱いになり、
+ * 「すべて展開」してもファイルが取り出せない。
+ *
+ * 実測 (Windows 11, JSZip 生成 ZIP):
+ *   - 89 文字: 認識される
+ *   - 90 文字: 認識されない (entries: 0)
+ *
+ * 7-Zip / PowerShell Expand-Archive / Unix unzip では問題なく展開できるが、
+ * 本サービスの主要ユーザーはエクスプローラを使うため、互換性のために
+ * 生成 ZIP のエントリパスを 89 文字以下に収める。
+ */
+const SHELL_ZIP_ENTRY_MAX_LEN = 89;
+
+/**
+ * フォルダプレフィックス + ファイル名 の合計が SHELL_ZIP_ENTRY_MAX_LEN を
+ * 超える場合、被保険者名（`様` より前の部分）の末尾を切り詰めて短縮する。
+ * 省略記号 (`…`) は付けず、収まる文字数までで素直に切る。
+ *
+ * 例:
+ *   folderPrefix = "0001_合同会社オ・フィル・デュ・ジャポン_アルヌ ﾌﾛｰﾚﾝｽ/" (約 47 chars)
+ *   fileName     = "ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞﾌｲﾝ ﾃﾚｽﾞ様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書.pdf" (約 64 chars)
+ *   合計 = 111 chars > 89 → 被保険者名側のみを切り詰めて:
+ *   "ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞ様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書.pdf"
+ *   (`様` 以降の通知書名は切らない)
+ *
+ * `様` を含まないファイル（例: "R7年9月_…通知書.pdf"、固定名公文書）は、
+ * 拡張子を保ったままベース名末尾から素直に切り詰める。
+ *
+ * フォルダ名側は触らない（入力 ZIP の構造を尊重するため）。
+ * フォルダ名 + 様以降 (固定suffix) だけで限界を超えるケース、または
+ * 被保険者名を 1 文字も残せないケースは諦めて素通し（ユーザーが
+ * 別の解凍ツールを使う必要がある）。
+ */
+function fitEntryNameToShellLimit(
+  folderPrefix: string,
+  fileName: string
+): string {
+  const totalLen = folderPrefix.length + fileName.length;
+  if (totalLen <= SHELL_ZIP_ENTRY_MAX_LEN) return fileName;
+
+  const budget = SHELL_ZIP_ENTRY_MAX_LEN - folderPrefix.length;
+  if (budget < 1) return fileName;
+
+  // 被保険者名 + 様[他N名]_通知書名.pdf の形式: `様` より前だけを切る
+  const samaIdx = fileName.indexOf('様');
+  if (samaIdx > 0) {
+    const namePart = fileName.slice(0, samaIdx);
+    const suffix = fileName.slice(samaIdx); // "様..." を含む固定部分
+    const nameBudget = budget - suffix.length;
+    if (nameBudget < 1) return fileName; // 被保険者名を 1 文字も残せない
+    if (namePart.length <= nameBudget) return fileName; // 既に収まっている
+    return namePart.slice(0, nameBudget) + suffix;
+  }
+
+  // `様` を含まないファイル: 拡張子を残してベース名末尾を切る
+  const dot = fileName.lastIndexOf('.');
+  const ext = dot >= 0 ? fileName.slice(dot) : '';
+  const base = dot >= 0 ? fileName.slice(0, dot) : fileName;
+  const baseBudget = budget - ext.length;
+  if (baseBudget < 1) return fileName;
+  return base.slice(0, baseBudget) + ext;
+}
+
+/**
+ * フォルダ単位の進捗コールバック
+ */
+export interface ProcessProgress {
+  onLog?: (message: string) => void;
+  onFolderStart?: (index: number, total: number, folderName: string) => void;
+  onFolderComplete?: (
+    index: number,
+    total: number,
+    folderName: string,
+    success: boolean,
+    pdfCount: number,
+    error?: string
+  ) => void;
+}
+
+/**
+ * フォルダ群を処理しながら逐次JSZipに追加する（メモリ効率版）
+ *
+ * 旧来の processFolders + createResultZip の合成版。
+ * - 生成PDFはディスクに即書き出し、JSZipにはReadStream参照のみ保持 → Buffer即解放
+ * - 元のXML/XSL/その他ファイルもReadStreamでJSZipに渡し、メモリ常駐させない
+ * - 大きな中間Bufferを作らないことでRender無料枠（512MB）の枯渇を防ぐ
+ */
+export async function processFoldersToZip(
+  folders: FolderStructure[],
+  extractPath: string,
+  callbacks?: ProcessProgress
+): Promise<JSZip> {
+  const zip = new JSZip();
+  const total = folders.length;
+
+  // 生成PDF一時格納先（extractPath配下に作るので最終クリーンアップで一緒に消える）
+  const intermediatePdfDir = path.join(extractPath, '__generated_pdfs__');
+  await fs.mkdir(intermediatePdfDir, { recursive: true });
+
+  let pdfCounter = 0;
+
+  for (let i = 0; i < total; i++) {
+    const folder = folders[i];
+    const folderNumber = i + 1;
+    callbacks?.onFolderStart?.(i, total, folder.folderName);
+    callbacks?.onLog?.(
+      `[${folderNumber}/${total}] 📁 Processing: ${truncateFileName(folder.folderName, 50)}`
+    );
+
+    const isRootFolder = folder.folderName === 'root';
+    const folderPrefix = isRootFolder ? '' : `${folder.folderName}/`;
+
+    try {
+      // PDF生成
+      let generated: GeneratedPdf[] | null = await processFolderDocuments(folder);
+      const pdfCount = generated.length;
+
+      // 各PDFをディスクに書き出してJSZipにはReadStreamのみ追加し、Bufferを即解放する
+      for (const pdf of generated) {
+        const tmpPdfPath = path.join(intermediatePdfDir, `${pdfCounter++}.pdf`);
+        await fs.writeFile(tmpPdfPath, pdf.buffer);
+        const safeName = fitEntryNameToShellLimit(folderPrefix, pdf.name);
+        if (safeName !== pdf.name) {
+          callbacks?.onLog?.(
+            `[${folderNumber}/${total}]   ✂️ Shortened for Windows shell: ${truncateFileName(pdf.name, 40)} → ${truncateFileName(safeName, 50)}`
+          );
+        }
+        zip.file(`${folderPrefix}${safeName}`, createReadStream(tmpPdfPath));
+      }
+      // ローカル参照を破棄してV8がBufferをGCできるようにする
+      generated = null;
+
+      // 元のXML/XSLファイル（ストリームでZIPに流し込む）
+      if (folder.xmlXslFiles) {
+        for (const fileName of folder.xmlXslFiles) {
+          const sourcePath = path.join(folder.folderPath, fileName);
+          try {
+            await fs.access(sourcePath);
+            const safeName = fitEntryNameToShellLimit(folderPrefix, fileName);
+            zip.file(`${folderPrefix}${safeName}`, createReadStream(sourcePath));
+          } catch (error) {
+            console.error(`Failed to copy XML/XSL file ${fileName}:`, error);
+          }
+        }
+      }
+
+      // その他ファイル（PDFはリネーム適用、旧バージョン出力の重複は除外）
+      if (folder.otherFiles) {
+        for (const fileName of folder.otherFiles) {
+          // 過去のコンバーター出力（旧元号略号付き日付プレフィックス）はスキップ
+          if (isLegacyEraDatePrefixedPdf(fileName)) {
+            callbacks?.onLog?.(
+              `[${folderNumber}/${total}]   ⏭️ Skipped legacy era-prefix PDF: ${truncateFileName(fileName, 60)}`
+            );
+            continue;
+          }
+
+          const sourcePath = path.join(folder.folderPath, fileName);
+          try {
+            await fs.access(sourcePath);
+            const targetFileName = renamePdfIfNeeded(fileName, folder.folderName);
+            if (targetFileName !== fileName) {
+              callbacks?.onLog?.(
+                `[${folderNumber}/${total}]   ✏️ Renamed: ${truncateFileName(fileName, 40)} → ${truncateFileName(targetFileName, 50)}`
+              );
+            }
+            const safeName = fitEntryNameToShellLimit(folderPrefix, targetFileName);
+            if (safeName !== targetFileName) {
+              callbacks?.onLog?.(
+                `[${folderNumber}/${total}]   ✂️ Shortened for Windows shell: ${truncateFileName(targetFileName, 40)} → ${truncateFileName(safeName, 50)}`
+              );
+            }
+            zip.file(`${folderPrefix}${safeName}`, createReadStream(sourcePath));
+          } catch (error) {
+            console.error(`Failed to copy file ${fileName}:`, error);
+          }
+        }
+      }
+
+      callbacks?.onFolderComplete?.(i, total, folder.folderName, true, pdfCount);
+      callbacks?.onLog?.(
+        `[${folderNumber}/${total}] ✅ Completed: ${pdfCount} PDFs generated`
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '不明なエラー';
+      const errorContent = `PDFの変換中にエラーが発生しました\n\nフォルダ: ${folder.folderName}\nエラー内容: ${errorMessage}\n\n対処方法:\n1. 元のZIPファイルの内容を確認してください\n2. 不足しているファイルを追加して再度アップロードしてください`;
+      zip.file(`${folderPrefix}変換エラー.txt`, errorContent);
+      callbacks?.onFolderComplete?.(i, total, folder.folderName, false, 0, errorMessage);
+      callbacks?.onLog?.(`[${folderNumber}/${total}] ❌ Error: ${errorMessage}`);
+    }
+  }
+
+  // ルート直下のファイル（Excel等）
+  const rootEntries = await fs.readdir(extractPath, { withFileTypes: true });
+  for (const file of rootEntries) {
+    if (file.isFile()) {
+      const filePath = path.join(extractPath, file.name);
+      zip.file(file.name, createReadStream(filePath));
+    }
+  }
+
+  return zip;
+}
+
+/**
+ * JSZipをディスク上の一時ファイルにストリーム書き出し
+ * - 巨大なzipをメモリ上にBuffer化しないことでピークメモリを大幅削減
+ * - 戻り値: 書き出した一時ファイルの絶対パス
+ */
+export async function streamZipToTempFile(zip: JSZip): Promise<string> {
+  const { createWriteStream } = await import('fs');
+  const outPath = path.join(tmpdir(), `bulk-result-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.zip`);
+
+  await new Promise<void>((resolve, reject) => {
+    const writeStream = createWriteStream(outPath);
+    let settled = false;
+    const settleResolve = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const settleReject = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+
+    writeStream.on('finish', settleResolve);
+    writeStream.on('error', settleReject);
+
+    // streamFiles: false にしている理由:
+    //   streamFiles: true を指定すると JSZip は各エントリの Local File
+    //   Header にサイズと CRC を書かず、エントリ末尾に Data Descriptor
+    //   (General Purpose Bit Flag bit 3) として書き込む形式になる。
+    //   この形式は ZIP 仕様としては正当だが、Windows Explorer (Shell.Application
+    //   COM) はサポートしておらず、ZIP を開いても「エントリ 0 件」として
+    //   見え、すべて展開しようとしても何も展開されない。
+    //   PowerShell の Expand-Archive や Unix の unzip、7-Zip などは
+    //   問題なく読めるためテストでは気付きにくい。
+    //   streamFiles: false にすると CRC/サイズ計算のためエントリ全体を
+    //   一旦バッファ化する分メモリ使用量は増えるが、Windows Explorer での
+    //   展開互換性が確保できる。本サービスのユーザーはほぼ Windows で
+    //   既定のエクスプローラ展開を使うため、互換性を優先する。
+    zip
+      .generateNodeStream({
+        type: 'nodebuffer',
+        streamFiles: false,
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      })
+      .on('error', settleReject)
+      .pipe(writeStream);
+  });
+
+  return outPath;
 }
 
 /**

@@ -28,15 +28,27 @@ export interface InsurerInfo {
 
 /**
  * 元号コードを文字に変換
+ *
+ * 受け取り得る形式（公文書XMLで実際に観測されたもの）:
+ *   - 数字コード: '5'=昭和 / '8'=平成 / '9'=令和
+ *   - 英字略号:   'S' / 'H' / 'R'
+ *   - フルテキスト: '昭和' / '平成' / '令和'  ← N7210001 等の <月額改定年月_元号> はこれ
+ *
+ * フルテキストを変換できないと revisionDate が "令和07年11月" のように
+ * 略号を期待する後続処理（pdf-naming.ts の formatEraDateForFilename 等）で
+ * フォールスルーし、suffix「改定」欠落・年のゼロ埋め残留などの不整合が発生する。
  */
 function convertEraCode(code: string): string {
   const eraMap: Record<string, string> = {
-    '5': 'S', // 昭和
-    '8': 'H', // 平成
-    '9': 'R', // 令和
+    '5': 'S',
+    '8': 'H',
+    '9': 'R',
     S: 'S',
     H: 'H',
     R: 'R',
+    昭和: 'S',
+    平成: 'H',
+    令和: 'R',
   };
   return eraMap[code] || code;
 }
@@ -53,14 +65,17 @@ export function extractNoticeTitle(
   if (rootTagMatch) {
     const rootTag = rootTagMatch[1];
     const documentTitles: Record<string, string> = {
+      'N7012001': '（社会保険）適用通知書',
       'N7100001': '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書',
+      'N7120002': '健康保険・厚生年金保険資格喪失確認通知書',
       'N7130001': '健康保険・厚生年金保険被保険者標準報酬決定通知書',
       'N7140001': '健康保険・厚生年金保険被保険者標準報酬改定通知書',
       'N7150001': '健康保険・厚生年金保険被保険者賞与額決定通知書',
-      'N7160001': '賞与支払届',
       'N7170003': '健康保険被扶養者（異動）決定通知書',
+      'N7180001': '厚生年金保険70歳以上被用者該当および標準報酬月額相当額のお知らせ',
       'N7200001': '厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ',
       'N7210001': '厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ',
+      'N7220001': '厚生年金保険70歳以上被用者標準賞与額相当額のお知らせ',
     };
 
     if (documentTitles[rootTag]) {
@@ -109,17 +124,34 @@ export function extractFromSocialInsurance(
     info.insurerCount = insurerBlocks.length;
 
     insurerBlocks.forEach((block) => {
-      // 70歳以上被用者の場合は被用者漢字氏名を使用
-      let nameMatch = block.match(/<被用者漢字氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被用者漢字氏名>/);
-      if (!nameMatch) {
-        // 通常の被保険者氏名
-        nameMatch = block.match(/<被保険者(?:漢字)?氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者(?:漢字)?氏名>/);
+      // 名前抽出の優先順位:
+      //   1. 被用者漢字氏名 (70歳以上)
+      //   2. 被保険者漢字氏名 / 被保険者氏名
+      //   3. 被用者カナ氏名  (70歳以上 漢字登録なし向けフォールバック)
+      //   4. 被保険者カナ氏名 (外国籍など漢字登録なしのケース向けフォールバック)
+      //
+      // 例: <被保険者漢字氏名><![CDATA[]]></被保険者漢字氏名> のように
+      // 漢字氏名が CDATA 空で送られてくる外国人被保険者ケースでは、
+      // カナ氏名 (ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞﾌｲﾝ ﾃﾚｽﾞ 等) にフォールバックする。
+      // 半角カナはファイル名に使用可能 (Windows/macOS とも対応)。
+      const pickName = (re: RegExp): string => {
+        const m = block.match(re);
+        return m ? m[1].trim() : '';
+      };
+      let name =
+        pickName(/<被用者漢字氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被用者漢字氏名>/) ||
+        pickName(/<被保険者(?:漢字)?氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者(?:漢字)?氏名>/);
+      if (!name) {
+        name =
+          pickName(/<被用者カナ氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被用者カナ氏名>/) ||
+          pickName(/<被保険者カナ氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者カナ氏名>/);
       }
+
       const numberMatch = block.match(/<被保険者番号>(.*?)<\/被保険者番号>/);
 
-      if (nameMatch) {
+      if (name) {
         const insurerInfo: InsurerInfo = {
-          name: nameMatch[1].trim(),
+          name,
           insurerNumber: numberMatch ? numberMatch[1].trim() : undefined,
         };
         info.allInsurers!.push(insurerInfo);
@@ -132,15 +164,19 @@ export function extractFromSocialInsurance(
     }
   } else {
     // _被保険者ブロックがない場合、従来の方法で抽出
-    const insurerNameMatch = xmlContent.match(
-      /<被保険者(?:漢字)?氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者(?:漢字)?氏名>/
-    );
-    if (insurerNameMatch) {
-      info.firstInsurerName = insurerNameMatch[1].trim();
+    // 漢字氏名 → カナ氏名 の順でフォールバック (外国人ケース対応)
+    const pickRootName = (re: RegExp): string => {
+      const m = xmlContent.match(re);
+      return m ? m[1].trim() : '';
+    };
+    const insurerName =
+      pickRootName(/<被保険者(?:漢字)?氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者(?:漢字)?氏名>/) ||
+      pickRootName(/<被保険者カナ氏名>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/被保険者カナ氏名>/);
+
+    if (insurerName) {
+      info.firstInsurerName = insurerName;
       info.insurerCount = 1;
-      info.allInsurers!.push({
-        name: insurerNameMatch[1].trim(),
-      });
+      info.allInsurers!.push({ name: insurerName });
     }
   }
 
@@ -183,11 +219,22 @@ export function extractFromSocialInsurance(
     }
   }
 
-  // 適用年月を抽出（月額変更用）
-  if (procedureType === '月額変更') {
-    const applicableEraMatch = xmlContent.match(/<適用年月_元号>(.*?)<\/適用年月_元号>/);
-    const applicableYearMatch = xmlContent.match(/<適用年月_年>(.*?)<\/適用年月_年>/);
-    const applicableMonthMatch = xmlContent.match(/<適用年月_月>(.*?)<\/適用年月_月>/);
+  // 適用年月を抽出（月額変更・算定基礎届で使用）
+  // ルート → なければ被保険者ブロックの順に試す
+  {
+    let applicableEraMatch = xmlContent.match(/<適用年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/適用年月_元号>/);
+    let applicableYearMatch = xmlContent.match(/<適用年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_年>/);
+    let applicableMonthMatch = xmlContent.match(/<適用年月_月>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_月>/);
+
+    if (!applicableEraMatch || !applicableYearMatch || !applicableMonthMatch) {
+      const firstInsurerBlock = xmlContent.match(/<_被保険者>[\s\S]*?<\/_被保険者>/);
+      if (firstInsurerBlock) {
+        const block = firstInsurerBlock[0];
+        applicableEraMatch = applicableEraMatch || block.match(/<適用年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/適用年月_元号>/);
+        applicableYearMatch = applicableYearMatch || block.match(/<適用年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_年>/);
+        applicableMonthMatch = applicableMonthMatch || block.match(/<適用年月_月>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_月>/);
+      }
+    }
 
     if (applicableEraMatch && applicableYearMatch && applicableMonthMatch) {
       const era = convertEraCode(applicableEraMatch[1]);

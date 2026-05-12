@@ -13,10 +13,21 @@ export async function generatePdfFromHtml(
     // Set viewport for consistent rendering
     await page.setViewport({ width: 1200, height: 1600 });
 
+    // bulk経路では HTML 側に scalingComplete セット用のスクリプトが入っていないため
+    // 毎回 3 秒の waitForFunction がタイムアウトで浪費されていた。
+    // 新規ドキュメントごとに load 完了で scalingComplete を立てるスクリプトを注入し、
+    // 単体経路(既にHTML側で同じことをしている)と整合させる。
+    await page.evaluateOnNewDocument(() => {
+      window.addEventListener('load', () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).scalingComplete = true;
+      });
+    });
+
     console.log("🌐 Loading HTML content");
     await page.setContent(htmlContent, { waitUntil: "domcontentloaded" });
 
-    // Wait for rendering to complete
+    // Wait for rendering to complete (load 発火で即座に解決される想定)
     await page.waitForFunction(
       () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

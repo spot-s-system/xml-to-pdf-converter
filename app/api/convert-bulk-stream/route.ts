@@ -1,14 +1,19 @@
 /**
  * 一括ZIP変換APIエンドポイント（リアルタイムストリーミング版）
  * POST /api/convert-bulk-stream
+ *
+ * メモリ最適化:
+ * - 結果ZIPは一時ファイルに書き出し、/api/download/{id} でストリーミング配信する
+ *   （base64データURLを廃止してピークメモリを大幅削減）
+ * - PDF生成バッファは生成直後に解放し、JSZipにはストリーム参照のみ保持する
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import {
   extractZipFile,
   analyzeFolderStructure,
-  processFolders,
-  createResultZip,
+  processFoldersToZip,
+  streamZipToTempFile,
   cleanupTempDirectory,
 } from '@/lib/bulk-zip-processor';
 import {
@@ -16,8 +21,10 @@ import {
   formatDuration,
   truncateFileName,
 } from '@/lib/logger';
+import { registerDownload } from '@/lib/download-store';
 
-export const maxDuration = 300; // 5分（Vercel Pro）
+export const runtime = 'nodejs';
+export const maxDuration = 300; // 5分
 
 export async function POST(request: NextRequest) {
   let tempPath: string | null = null;
@@ -28,7 +35,6 @@ export async function POST(request: NextRequest) {
     async start(controller) {
       let isControllerClosed = false;
 
-      // ログ送信関数
       const sendLog = (message: string) => {
         if (isControllerClosed) return;
         try {
@@ -40,7 +46,6 @@ export async function POST(request: NextRequest) {
         }
       };
 
-      // エラー送信関数
       const sendError = (error: string) => {
         if (isControllerClosed) return;
         try {
@@ -52,7 +57,6 @@ export async function POST(request: NextRequest) {
         }
       };
 
-      // 完了送信関数
       const sendComplete = (downloadUrl?: string) => {
         if (isControllerClosed) return;
         try {
@@ -67,7 +71,6 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        // フォームデータからZIPファイルを取得
         const formData = await request.formData();
         const file = formData.get('file') as File;
 
@@ -77,7 +80,6 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        // ファイルサイズチェック (最大100MB)
         const maxSize = 100 * 1024 * 1024;
         if (file.size > maxSize) {
           sendError(`ファイルサイズが大きすぎます（最大${maxSize / 1024 / 1024}MB）`);
@@ -85,7 +87,6 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        // ZIPファイルかチェック
         if (!file.name.toLowerCase().endsWith('.zip')) {
           sendError('ZIPファイルをアップロードしてください');
           controller.close();
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest) {
         logStart(startMessage);
         sendLog(startMessage);
 
-        // ファイルをBufferに変換
+        // ファイルをBufferに変換（formDataからの読み込みは一時的に必要）
         const arrayBuffer = await file.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
@@ -105,15 +106,13 @@ export async function POST(request: NextRequest) {
         sendLog('📦 Extracting ZIP file...');
         const extractStartTime = Date.now();
         tempPath = await extractZipFile(buffer);
-        const extractMessage = `✓ Extracted in ${formatDuration(Date.now() - extractStartTime)}`;
-        sendLog(extractMessage);
+        sendLog(`✓ Extracted in ${formatDuration(Date.now() - extractStartTime)}`);
 
         // Step 2: フォルダ構造を分析
         sendLog('🔍 Analyzing folder structure...');
         const analyzeStartTime = Date.now();
         const folders = await analyzeFolderStructure(tempPath);
-        const analyzeMessage = `✓ Found ${folders.length} folders in ${formatDuration(Date.now() - analyzeStartTime)}`;
-        sendLog(analyzeMessage);
+        sendLog(`✓ Found ${folders.length} folders in ${formatDuration(Date.now() - analyzeStartTime)}`);
 
         if (folders.length === 0) {
           sendError('処理可能なフォルダが見つかりませんでした');
@@ -132,76 +131,53 @@ export async function POST(request: NextRequest) {
           );
         });
 
-        // Step 3: 各フォルダのドキュメントをPDF化（リアルタイムログ付き）
+        // Step 3+4: フォルダ処理 → JSZipに直接書き込み（メモリ効率版）
         sendLog('🔄 Converting documents to PDFs...');
-
-        // processFoldersの処理をここでインライン化して、各ステップでログを送信
-        const processedFolders = [];
-        for (let i = 0; i < folders.length; i++) {
-          const folder = folders[i];
-          const folderNumber = i + 1;
-          const folderProgress = `[${folderNumber}/${folders.length}]`;
-
-          sendLog(`${folderProgress} 📁 Processing: ${truncateFileName(folder.folderName, 50)}`);
-
-          try {
-            // ここで実際の処理（簡略版）
-            const result = await processFolders([folder]);
-            processedFolders.push(...result);
-
-            if (result[0].success) {
-              sendLog(`${folderProgress} ✅ Completed: ${result[0].pdfs?.length || 0} PDFs generated`);
+        let successCount = 0;
+        let errorCount = 0;
+        const zip = await processFoldersToZip(folders, tempPath, {
+          onLog: sendLog,
+          onFolderComplete: (_i, _t, _name, success) => {
+            if (success) {
+              successCount++;
             } else {
-              sendLog(`${folderProgress} ❌ Failed: ${result[0].error}`);
+              errorCount++;
             }
-          } catch (error) {
-            sendLog(`${folderProgress} ❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            processedFolders.push({
-              folderName: folder.folderName,
-              folderPath: folder.folderPath,
-              success: false,
-              error: error instanceof Error ? error.message : 'Unknown error',
-            });
-          }
-        }
+          },
+        });
 
-        // 結果をサマリー
-        const successCount = processedFolders.filter((f) => f.success).length;
-        const errorCount = processedFolders.filter((f) => !f.success).length;
         const totalTime = Date.now() - startTime;
-
         sendLog(`🏁 Conversion complete in ${formatDuration(totalTime)}`);
         sendLog(`✅ Success: ${successCount}/${folders.length} folders`);
         if (errorCount > 0) {
           sendLog(`❌ Failed: ${errorCount} folders`);
         }
 
-        // Step 4: 結果をZIPにまとめる
-        sendLog('🗜️ Creating result ZIP...');
+        // Step 5: ZIPを一時ファイルへストリーム書き出し（base64廃止）
+        sendLog('🗜️ Creating result ZIP (streaming to disk)...');
         const zipStartTime = Date.now();
-        const resultZip = await createResultZip(processedFolders, tempPath);
-        sendLog(`✓ ZIP created: ${(resultZip.length / 1024 / 1024).toFixed(2)}MB in ${formatDuration(Date.now() - zipStartTime)}`);
+        const resultZipPath = await streamZipToTempFile(zip);
+        sendLog(`✓ ZIP created in ${formatDuration(Date.now() - zipStartTime)}`);
 
-        // Step 5: 一時ディレクトリをクリーンアップ
+        // Step 6: 一時抽出ディレクトリをクリーンアップ（結果ZIPは別の場所にあるので影響なし）
         if (tempPath) {
           sendLog('🧹 Cleaning up temporary files...');
           await cleanupTempDirectory(tempPath);
+          tempPath = null;
         }
 
         sendLog(`✨ All processing complete! Total time: ${formatDuration(totalTime)}`);
 
-        // 結果をBase64エンコードして送信
-        const base64Zip = resultZip.toString('base64');
+        // ダウンロードIDを発行してURLとして送信（base64データURLは使わない）
         const fileName = file.name.replace('.zip', '_変換結果.zip');
-        const downloadUrl = `data:application/zip;base64,${base64Zip}#${encodeURIComponent(fileName)}`;
+        const downloadId = registerDownload(resultZipPath, fileName);
+        const downloadUrl = `/api/download/${downloadId}`;
 
         sendComplete(downloadUrl);
-
       } catch (error) {
         console.error('Bulk conversion error:', error);
         sendError(error instanceof Error ? error.message : '変換中にエラーが発生しました');
 
-        // クリーンアップ
         if (tempPath) {
           await cleanupTempDirectory(tempPath);
         }
