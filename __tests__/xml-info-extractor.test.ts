@@ -110,6 +110,45 @@ describe('extractFromSocialInsurance — 被保険者ブロックからの名前
     expect(info.revisionDate).toBe('R07年11月');
   });
 
+  it('元号がフルテキスト「令和」でも R に変換される（N7210001 実データ形式）', () => {
+    // 実 XML では <月額改定年月_元号><![CDATA[令和]]></月額改定年月_元号> となっており、
+    // 略号("R")ではなくフルテキストが入る。これを略号に正規化できないと、
+    // pdf-naming.formatEraDateForFilename がフォールスルーして
+    // ファイル名から suffix「改定」が抜ける／年がゼロ埋めのままになるバグが発生する。
+    const xml = `<?xml version="1.0"?><N7210001>
+      <_被保険者>
+        <被用者漢字氏名>高橋一郎</被用者漢字氏名>
+        <月額改定年月_元号><![CDATA[令和]]></月額改定年月_元号>
+        <月額改定年月_年><![CDATA[ 7]]></月額改定年月_年>
+        <月額改定年月_月>11</月額改定年月_月>
+      </_被保険者>
+    </N7210001>`;
+    const info = extractFromSocialInsurance(xml, '月額変更');
+    expect(info.revisionDate).toBe('R07年11月');
+  });
+
+  it('元号がフルテキスト「昭和」「平成」でも対応する略号に変換される', () => {
+    const showa = `<?xml version="1.0"?><N7140001>
+      <_被保険者>
+        <被保険者漢字氏名>山田太郎</被保険者漢字氏名>
+        <改定年月_元号>昭和</改定年月_元号>
+        <改定年月_年>60</改定年月_年>
+        <改定年月_月>5</改定年月_月>
+      </_被保険者>
+    </N7140001>`;
+    expect(extractFromSocialInsurance(showa, '月額変更').revisionDate).toBe('S60年05月');
+
+    const heisei = `<?xml version="1.0"?><N7140001>
+      <_被保険者>
+        <被保険者漢字氏名>山田太郎</被保険者漢字氏名>
+        <改定年月_元号>平成</改定年月_元号>
+        <改定年月_年>30</改定年月_年>
+        <改定年月_月>4</改定年月_月>
+      </_被保険者>
+    </N7140001>`;
+    expect(extractFromSocialInsurance(heisei, '月額変更').revisionDate).toBe('H30年04月');
+  });
+
   it('賞与XMLから賞与支払年月日を抽出 (R07年06月15日)', () => {
     const xml = `<?xml version="1.0"?><N7150001>
       <_被保険者><被保険者漢字氏名>山田太郎</被保険者漢字氏名></_被保険者>

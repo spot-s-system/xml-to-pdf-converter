@@ -28,15 +28,27 @@ export interface InsurerInfo {
 
 /**
  * 元号コードを文字に変換
+ *
+ * 受け取り得る形式（公文書XMLで実際に観測されたもの）:
+ *   - 数字コード: '5'=昭和 / '8'=平成 / '9'=令和
+ *   - 英字略号:   'S' / 'H' / 'R'
+ *   - フルテキスト: '昭和' / '平成' / '令和'  ← N7210001 等の <月額改定年月_元号> はこれ
+ *
+ * フルテキストを変換できないと revisionDate が "令和07年11月" のように
+ * 略号を期待する後続処理（pdf-naming.ts の formatEraDateForFilename 等）で
+ * フォールスルーし、suffix「改定」欠落・年のゼロ埋め残留などの不整合が発生する。
  */
 function convertEraCode(code: string): string {
   const eraMap: Record<string, string> = {
-    '5': 'S', // 昭和
-    '8': 'H', // 平成
-    '9': 'R', // 令和
+    '5': 'S',
+    '8': 'H',
+    '9': 'R',
     S: 'S',
     H: 'H',
     R: 'R',
+    昭和: 'S',
+    平成: 'H',
+    令和: 'R',
   };
   return eraMap[code] || code;
 }
