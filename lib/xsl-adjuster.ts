@@ -58,6 +58,11 @@ export function adjustXslForA4(xslContent: string): string {
   //   table width="100%" → td align="center"
   // で中央寄せされる（Edge の Print to PDF と同じ挙動）。
   // body に max-width を付けると左寄せに固定されてしまうため付けない。
+  //
+  // padding-right で見た目の中央位置を左にオフセットする (約 2 文字分):
+  //   A4内寸 ~756px − padding-right 40px = 中央寄せ計算上 ~716px のキャンバスとなり、
+  //   640px outline テーブルが視覚的に約 20px (≒ 2 文字分) 左寄りに配置される。
+  //   これで Edge の Print to PDF と見比べたときに左右マージンのバランスが揃う。
   const pageStyles = `
     @page {
       size: A4;
@@ -66,6 +71,7 @@ export function adjustXslForA4(xslContent: string): string {
     @media print {
       body {
         margin: 0;
+        padding-right: 40px;
       }
     }
   `;

@@ -224,41 +224,56 @@ describe('integration: 育児_社保雇保混在.zip', async () => {
   const has = await fixtureExists(fixtureName);
 
   it.skipIf(!has)(
-    '[社保]育休フォルダで XML → {名前}様_育児休業等取得者確認通知書.pdf が生成される',
+    '[雇保]育児休業出生後休業給付の同梱PDFが {名前}様_… にリネームされる',
     async () => {
-      const { pdfs } = await runPipeline(fixtureName);
-      expect(pdfs.some((p) =>
-        /様_健康保険・厚生年金保険育児休業等取得者確認通知書\.pdf$/.test(p)
-      )).toBe(true);
-    },
-    600_000
-  );
+      const { pdfs } = await runPipeline(fixtureName, {
+        dumpLabel: '育児_社保雇保混在',
+      });
 
-  it.skipIf(!has)(
-    '[雇保]育児時短就業給付の同梱PDFが {名前}様_… にリネームされる',
-    async () => {
-      const { pdfs } = await runPipeline(fixtureName);
-      // ハイフン区切りの数字プレフィックス (`202602021152166333-0001_…`) が
-      // {名前}様_ に置換されている
+      // ハイフン区切りの数字プレフィックス (`202605111132323353-0001_…`) が
+      // {名前}様_ に置換されている (3 種類の通知書が同梱されているはず)
       expect(pdfs.some((p) =>
-        /様_育児時短就業給付金支給.+通知書.*\.pdf$/.test(p)
+        /様_育児休業給付金・出生後休業支援給付金支給申請書\.pdf$/.test(p)
+      )).toBe(true);
+      expect(pdfs.some((p) =>
+        /様_育児休業給付金支給／不支給決定通知書\(被保険者通知用\)\.pdf$/.test(p)
+      )).toBe(true);
+      expect(pdfs.some((p) =>
+        /様_育児休業給付次回支給申請日指定通知書\(事業主通知用\)\.pdf$/.test(p)
       )).toBe(true);
 
       // 数字プレフィックスのままのPDFは残っていないこと（リネーム漏れ検出）
-      expect(pdfs.some((p) =>
-        /^[\w\W]*\/?\d{18}-\d{4}_/.test(p)
-      )).toBe(false);
+      expect(pdfs.some((p) => /\d{18}-\d{4}_/.test(p))).toBe(false);
     },
     600_000
   );
 
   it.skipIf(!has)(
-    '[雇保]育児時短就業給付フォルダ同梱の「育児に関する新たな給付等についてのお知らせ.pdf」' +
-      'のような非数字プレフィックスPDFはリネーム対象外でそのまま残置される',
+    '[雇保]フォルダ同梱の「育児に関する新たな給付等についてのお知らせ.pdf」など' +
+      '非数字プレフィックスのPDFはリネーム対象外でそのまま残置される',
     async () => {
       const { entries } = await runPipeline(fixtureName);
+      // 案内系の同梱PDFは元名のまま残る
       expect(entries.some((e) =>
         /\/育児に関する新たな給付等についてのお知らせ\.pdf$/.test(e)
+      )).toBe(true);
+      expect(entries.some((e) =>
+        /\/LL070401離職日までの育児休業給付金\.pdf$/.test(e)
+      )).toBe(true);
+    },
+    600_000
+  );
+
+  it.skipIf(!has)(
+    '[社保]育児休業等終了届フォルダの 7020001.pdf は現状リネーム対象外でそのまま残置される',
+    async () => {
+      // SHAHO_PER_PERSON_RENAME_MAP は [社保]育児休業等申出書 / 産前産後休業等申出書
+      // にのみ対応。終了届はマッピング未登録のため、同梱の 7020001.pdf は
+      // 元の名前のまま結果ZIPに含まれる。
+      // （将来、終了届にもリネームルールを追加した時点でこのテストは更新する）
+      const { entries } = await runPipeline(fixtureName);
+      expect(entries.some((e) =>
+        /\[社保\]育児休業等終了届.+\/7020001\.pdf$/.test(e)
       )).toBe(true);
     },
     600_000
