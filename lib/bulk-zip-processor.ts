@@ -792,7 +792,7 @@ export async function processFolderDocuments(
  *   "0013_株式会社1SEC_川村 夏菜_[雇保]資格喪失(離職票交付あり)_..."          → "川村夏菜"
  *   "0001_株式会社A_2971676_鈴木 花子_[雇保]育児休業出生後休業給付_..."        → "鈴木花子"
  */
-function extractInsurerNameFromFolderName(folderName: string): string | null {
+export function extractInsurerNameFromFolderName(folderName: string): string | null {
   // 手続き種別はパス長切り詰めで途中で切れている可能性があるため、頭文字レベル
   // （資格 / 育）のプレフィックスでマッチさせる。
   //   資格 → 資格取得 / 資格喪失
@@ -823,7 +823,7 @@ function extractInsurerNameFromFolderName(folderName: string): string | null {
  *
  * 「コメント」フォルダはリネーム対象外なのでnullを返す。
  */
-function extractRoudouHokenKoubunshoInfo(
+export function extractRoudouHokenKoubunshoInfo(
   folderName: string
 ): { reiwaYear: number; isKensetsu: boolean } | null {
   const match = folderName.match(
@@ -851,7 +851,7 @@ const SHAHO_PER_PERSON_RENAME_MAP: Array<{
   { pattern: /\[社保\]産前産後休業等申出書/, title: '健康保険・厚生年金保険産前産後休業取得者確認通知書' },
 ];
 
-function getShahoPerPersonRenameTitle(folderName: string): string | null {
+export function getShahoPerPersonRenameTitle(folderName: string): string | null {
   if (!/_公文書_/.test(folderName)) return null;
   for (const { pattern, title } of SHAHO_PER_PERSON_RENAME_MAP) {
     if (pattern.test(folderName)) return title;
@@ -859,7 +859,7 @@ function getShahoPerPersonRenameTitle(folderName: string): string | null {
   return null;
 }
 
-function extractInsurerNameFromShahoFolder(folderName: string): string | null {
+export function extractInsurerNameFromShahoFolder(folderName: string): string | null {
   // 手続きタグ以降の末尾 `_` は必須としない（パス長切り詰めで末尾が切れたケースを救済）
   const match = folderName.match(/_([^_]+)_\[社保\]/);
   return match ? match[1].trim() : null;
@@ -872,7 +872,7 @@ function extractInsurerNameFromShahoFolder(folderName: string): string | null {
  * これらは過去の変換結果が再投入されたケースで、現行版が生成する
  * 「令和8年1月25日_xxx.pdf」と内容が重複するため除外する。
  */
-function isLegacyEraDatePrefixedPdf(fileName: string): boolean {
+export function isLegacyEraDatePrefixedPdf(fileName: string): boolean {
   if (!fileName.toLowerCase().endsWith('.pdf')) return false;
   return /^[SHR]\d{1,4}年\d{1,2}月(?:\d{1,2}日)?_/.test(fileName);
 }
@@ -893,7 +893,7 @@ const FIXED_NAME_MAP: Array<{
   { pattern: /\[社保\]新規適用/, fileName: '（社会保険）適用通知書.pdf' },
 ];
 
-function getFixedKoubunshoFilename(folderName: string): string | null {
+export function getFixedKoubunshoFilename(folderName: string): string | null {
   if (!/_公文書_/.test(folderName)) return null;
   for (const { pattern, fileName } of FIXED_NAME_MAP) {
     if (pattern.test(folderName)) return fileName;
@@ -917,7 +917,7 @@ function getFixedKoubunshoFilename(folderName: string): string | null {
  *   5. それ以外:
  *        そのまま
  */
-function renamePdfIfNeeded(fileName: string, folderName: string): string {
+export function renamePdfIfNeeded(fileName: string, folderName: string): string {
   if (!fileName.toLowerCase().endsWith('.pdf')) return fileName;
 
   // ルール1: 労働保険年度更新（公文書）— ファイル名形式は問わない
