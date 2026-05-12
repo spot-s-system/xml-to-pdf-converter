@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
+import JSZip from 'jszip';
 import {
   extractZipFile,
   analyzeFolderStructure,
@@ -18,6 +19,51 @@ import {
 } from '@/lib/bulk-zip-processor';
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
+const OUTPUT_DIR = path.join(__dirname, 'output');
+
+/**
+ * JSZip ストリームから PDF を一度だけ読み出し、{ name → buffer } のマップを返す。
+ * JSZip の ReadStream エントリは複数回 .async() を呼ぶと2回目以降空になるため、
+ * バッファ化して以降の検証（ページ数算出・ディスク書き出し）はメモリ上で行う。
+ */
+async function materializePdfBuffers(
+  resultZip: JSZip
+): Promise<Map<string, Buffer>> {
+  const result = new Map<string, Buffer>();
+  const tasks: Promise<void>[] = [];
+  resultZip.forEach((relativePath, file) => {
+    if (file.dir) return;
+    if (!relativePath.toLowerCase().endsWith('.pdf')) return;
+    tasks.push(
+      (async () => {
+        const buf = await file.async('nodebuffer');
+        result.set(relativePath, buf);
+      })()
+    );
+  });
+  await Promise.all(tasks);
+  return result;
+}
+
+/**
+ * バッファ化済みPDFを __tests__/integration/output/{label}/ に書き出す。
+ * output は .gitignore で git 管理外。実行前にディレクトリを毎回クリアする。
+ */
+async function dumpPdfBuffers(
+  label: string,
+  pdfBuffers: Map<string, Buffer>
+): Promise<string> {
+  const dir = path.join(OUTPUT_DIR, label);
+  await fs.rm(dir, { recursive: true, force: true });
+  await fs.mkdir(dir, { recursive: true });
+  await Promise.all(
+    [...pdfBuffers].map(([relativePath, buf]) => {
+      const safe = relativePath.replace(/[\\/]/g, '__');
+      return fs.writeFile(path.join(dir, safe), buf);
+    })
+  );
+  return dir;
+}
 
 async function fixtureExists(name: string): Promise<boolean> {
   try {
@@ -35,9 +81,14 @@ async function loadFixture(name: string): Promise<Buffer> {
 /**
  * 単発テストヘルパー: fixture を解凍してパイプラインに通し、結果ZIPのエントリ名一覧を返す。
  */
-async function runPipeline(fixtureName: string): Promise<{
+async function runPipeline(
+  fixtureName: string,
+  options: { dumpLabel?: string } = {}
+): Promise<{
   entries: string[];
   pdfs: string[];
+  pdfPageCounts: number[];
+  outputDir?: string;
 }> {
   const zipBuffer = await loadFixture(fixtureName);
   const extractPath = await extractZipFile(zipBuffer);
@@ -46,7 +97,37 @@ async function runPipeline(fixtureName: string): Promise<{
     const resultZip = await processFoldersToZip(folders, extractPath);
     const entries = Object.keys(resultZip.files);
     const pdfs = entries.filter((e) => e.toLowerCase().endsWith('.pdf'));
-    return { entries, pdfs };
+
+    // JSZip の ReadStream は使い捨てなので、PDF を1回だけ読み出してバッファ化し
+    // 以降の検証はメモリ上で行う。
+    const pdfBuffers = await materializePdfBuffers(resultZip);
+
+    // PDFの各ページ数を集計（レイアウト不具合検出用: 余分な空白ページが
+    // 入っているとここで気付ける）
+    // PDFバイナリ内の "/Type /Page" カウントで簡易ページ数取得
+    const pdfPageCounts = pdfs.map((name) => {
+      const buf = pdfBuffers.get(name);
+      if (!buf) return 0;
+      const matches = buf.toString('latin1').match(/\/Type\s*\/Page[^s]/g);
+      return matches?.length ?? 0;
+    });
+
+    let outputDir: string | undefined;
+    if (options.dumpLabel) {
+      outputDir = await dumpPdfBuffers(options.dumpLabel, pdfBuffers);
+    }
+
+    // パイプライン内で握りつぶされた変換エラーがあれば顕在化する
+    const errorEntries = entries.filter((e) => e.endsWith('変換エラー.txt'));
+    if (errorEntries.length > 0) {
+      const sample = errorEntries[0];
+      const file = resultZip.files[sample];
+      const errorText = await file.async('text');
+      // eslint-disable-next-line no-console
+      console.error(`[pipeline error] ${sample}:\n${errorText}`);
+    }
+
+    return { entries, pdfs, pdfPageCounts, outputDir };
   } finally {
     await cleanupTempDirectory(extractPath);
   }
@@ -91,22 +172,39 @@ describe('integration: 資格取得_70歳以上.zip', async () => {
   const has = await fixtureExists(fixtureName);
 
   it.skipIf(!has)(
-    '[社保]資格取得フォルダから 7100001/7180001 の個別PDFが生成される',
+    '[社保]資格取得フォルダから 7100001/7180001 の個別PDFが生成され、各PDFは2ページ構成 (Edge等価)',
     async () => {
-      const { pdfs } = await runPipeline(fixtureName);
+      const { pdfs, pdfPageCounts, outputDir } = await runPipeline(fixtureName, {
+        dumpLabel: '資格取得_70歳以上',
+      });
 
-      // 各フォルダで kagami + 7100001 (個人毎) + 7180001 (個人毎) 等のPDFが生成される
       expect(pdfs.length).toBeGreaterThan(0);
 
       // 7100001 由来の出力
-      expect(pdfs.some((p) =>
+      const p7100001 = pdfs.findIndex((p) =>
         /様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書\.pdf$/.test(p)
-      )).toBe(true);
+      );
+      expect(p7100001).toBeGreaterThanOrEqual(0);
 
       // 7180001 由来の出力（70歳以上 該当）
-      expect(pdfs.some((p) =>
+      const p7180001 = pdfs.findIndex((p) =>
         /様_厚生年金保険70歳以上被用者該当および標準報酬月額相当額のお知らせ\.pdf$/.test(p)
-      )).toBe(true);
+      );
+      expect(p7180001).toBeGreaterThanOrEqual(0);
+
+      // レイアウト不具合検出:
+      //  - 7100001 (資格取得確認通知書): XSL に kyoji (不服注意書き) template があり
+      //    通知書本体 + 教示文 = 2ページが期待値。
+      //    過去に xsl-adjuster の過剰なスタイル上書きで通知書本体1ページ目が
+      //    あふれ、3ページになる不具合があった。
+      //  - 7180001 (70歳以上 該当のお知らせ): XSL に kyoji template がなく
+      //    通知書本体のみ。1ページが期待値。
+      expect(pdfPageCounts[p7100001]).toBe(2);
+      expect(pdfPageCounts[p7180001]).toBe(1);
+
+      // 出力先を test runner ログに出して、目視確認しやすくする
+      // eslint-disable-next-line no-console
+      console.log(`[dump] PDFs written to: ${outputDir}`);
     },
     300_000
   );
