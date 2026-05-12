@@ -59,14 +59,16 @@ export function adjustXslForA4(xslContent: string): string {
   // で中央寄せされる（Edge の Print to PDF と同じ挙動）。
   // body に max-width を付けると左寄せに固定されてしまうため付けない。
   //
-  // 印刷時のみ zoom で 88% に縮小:
-  //   元 XSL は 640px 想定で組まれているが、A4 用紙上では端まで詰まって
-  //   見え、Edge の Print to PDF と比べて外枠線との距離が小さい。
-  //   body 全体を zoom で縮小して、外枠との余白を確保しつつ全体のバランスを
-  //   ユーザー指定（添付画像）に近づける。
-  //   zoom は Chromium の PDF レンダリング時に確実にスケーリングが効き、
-  //   transform: scale と違って後続要素のレイアウト計算もスケーリング後の
-  //   サイズで行われるため、改ページ判定とも整合する。
+  // 外枠 (.outline) を 640px → 720px に拡張:
+  //   元 XSL は `table.outline { width: 640px }` 指定で、内側の被保険者
+  //   データ表 (col width 合計が ~600px) が cellpadding="20px" 内に
+  //   ほぼ目一杯入り、外枠の右辺と内部表の右辺が見た目上重なる状態。
+  //   外枠幅を 80px 広げて 720px にすることで、内部表の左右に約 20px の
+  //   余白が生まれ、視覚的な重なりが解消される (ユーザー要望: 中央の表は
+  //   小さくせず外枠を大きく)。
+  //   高さは元のまま (height: 940px) なので、縦方向のページ量は変わらず
+  //   通知書本体 + 教示文 の 2 ページ構成を維持し、白紙ページが挟まる
+  //   余地はない。720px は A4 印刷可能領域 756px (5mm マージン) に収まる。
   const pageStyles = `
     @page {
       size: A4;
@@ -75,8 +77,11 @@ export function adjustXslForA4(xslContent: string): string {
     @media print {
       body {
         margin: 0;
-        zoom: 0.88;
       }
+    }
+    /* 外枠 .outline テーブル自体を横方向に拡張 */
+    table.outline {
+      width: 720px !important;
     }
   `;
 
