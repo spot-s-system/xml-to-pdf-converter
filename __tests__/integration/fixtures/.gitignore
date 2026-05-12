@@ -1,0 +1,4 @@
+# fixtures に置く実データ ZIP は git に絶対追加しない（顧客個人情報を含むため）
+*
+!.gitignore
+!README.md
