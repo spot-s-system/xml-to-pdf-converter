@@ -1,6 +1,6 @@
 # Dockerfile for Render deployment with Puppeteer support
 
-FROM node:20-slim
+FROM node:22-slim
 
 # Install Chrome dependencies and Japanese fonts
 RUN apt-get update && apt-get install -y \
