@@ -306,6 +306,8 @@ export default function Home() {
 
             <p className="text-xs text-muted-foreground/80">
               ※ 算定基礎届などで被保険者が数十名含まれる場合、10〜20分以上かかることがあります（PDF 1枚あたり約4〜10秒）。
+              <br />
+              データが多数含まれる ZIP は、1 社分のみにするなど小分けにしてアップロードすることを推奨します（処理時間の短縮 + メモリ消費の抑制）。
             </p>
 
             {error && (
