@@ -4,14 +4,34 @@ import { sanitizeFileName } from "./xml-parser";
  * 通知書番号から正式な通知書名へのマッピング
  */
 
-export const DOCUMENT_NAMES: { [key: string]: string } = {
+/**
+ * 社保公文書 (`7xxxxxx`) の通知書ID → 正式名称
+ *
+ * 単一の真実の源として保持し、以下の3箇所で参照する:
+ *   - document-names.ts (DOCUMENT_NAMES, getDocumentName)
+ *   - xml-info-extractor.ts (extractNoticeTitle: ルートタグ N7xxxxx から N を剥がして lookup)
+ *   - koubunsho-pdf-splitter.ts (PDF分割時のリネーム名生成)
+ *
+ * 通知書名のマスタはここを唯一の編集箇所にする。
+ */
+export const SHAHO_NOTICE_TITLES: Record<string, string> = {
+  "7012001": "（社会保険）適用通知書",
   "7100001": "健康保険・厚生年金保険資格取得確認および標準報酬決定通知書",
+  "7120002": "健康保険・厚生年金保険資格喪失確認通知書",
   "7130001": "健康保険・厚生年金保険被保険者標準報酬決定通知書",
   "7140001": "健康保険・厚生年金保険被保険者標準報酬改定通知書",
+  "7150001": "健康保険・厚生年金保険被保険者賞与額決定通知書",
+  "7170003": "健康保険被扶養者（異動）決定通知書",
+  "7180001": "厚生年金保険70歳以上被用者該当および標準報酬月額相当額のお知らせ",
   "7200001": "厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ",
   "7210001": "厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ",
-  "henrei": "返戻のお知らせ",
-  "kagami": "日本年金機構からのお知らせ",
+  "7220001": "厚生年金保険70歳以上被用者標準賞与額相当額のお知らせ",
+};
+
+export const DOCUMENT_NAMES: Record<string, string> = {
+  ...SHAHO_NOTICE_TITLES,
+  henrei: "返戻のお知らせ",
+  kagami: "日本年金機構からのお知らせ",
 };
 
 /**
