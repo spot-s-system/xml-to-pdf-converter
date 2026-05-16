@@ -7,7 +7,10 @@ import {
   getShahoPerPersonRenameTitle,
   getFixedKoubunshoFilename,
   isLegacyEraDatePrefixedPdf,
+  isApplicationCopyFolder,
+  applyShahoFolderNameFallbacks,
 } from '@/lib/bulk-zip-processor';
+import type { NamingInfo } from '@/lib/xml-info-extractor';
 
 describe('extractInsurerNameFromFolderName — [雇保] フォルダから被保険者名抽出', () => {
   it('4フィールド構造 (seq_会社_名前_[雇保]xxx)', () => {
@@ -149,6 +152,187 @@ describe('isLegacyEraDatePrefixedPdf — 旧バージョン出力PDFの判定', 
 
   it('元号略号始まりでないファイルは対象外', () => {
     expect(isLegacyEraDatePrefixedPdf('山田太郎様_xxx.pdf')).toBe(false);
+  });
+});
+
+describe('applyShahoFolderNameFallbacks — 通知書名・被保険者名のフォールバック', () => {
+  const emptyInfo: NamingInfo = {
+    firstInsurerName: '',
+    insurerCount: 0,
+    allInsurers: [],
+    noticeTitle: '通知書', // DataRoot で <TITLE> 無しの場合のデフォルト
+  };
+
+  describe('isApplicationCopy=false（公文書/通知書経路）', () => {
+    it('[社保]資格喪失 → タイトルを「健康保険・厚生年金保険資格喪失確認通知書」に上書き', () => {
+      const folderName =
+        '0001_ニキ株式会社_3513312_陳 修_[社保]資格喪失届(単記)_202605080957403094_・・・';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, false);
+      expect(result.noticeTitle).toBe(
+        '健康保険・厚生年金保険資格喪失確認通知書'
+      );
+      expect(result.firstInsurerName).toBe('陳 修');
+      expect(result.allInsurers).toEqual([{ name: '陳 修' }]);
+      expect(result.insurerCount).toBe(1);
+    });
+
+    it('[社保]資格取得 → 「資格取得確認および標準報酬決定通知書」', () => {
+      const folderName = '0001_株式会社A_2971676_鈴木花子_[社保]資格取得_公文書_1';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, false);
+      expect(result.noticeTitle).toBe(
+        '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書'
+      );
+    });
+
+    it('[社保]新規適用（会社単位）→ 被保険者名はクリアされる', () => {
+      const folderName = '0001_株式会社X_[社保]新規適用_公文書_1';
+      const info: NamingInfo = {
+        ...emptyInfo,
+        firstInsurerName: '誰か',
+        insurerCount: 1,
+        allInsurers: [{ name: '誰か' }],
+      };
+      const result = applyShahoFolderNameFallbacks(info, folderName, false);
+      expect(result.noticeTitle).toBe('（社会保険）適用通知書');
+      expect(result.firstInsurerName).toBe('');
+      expect(result.allInsurers).toEqual([]);
+    });
+
+    it('既存の noticeTitle が「通知書」以外なら上書きしない', () => {
+      const info: NamingInfo = {
+        ...emptyInfo,
+        noticeTitle: '何か特殊な通知書',
+      };
+      const folderName = '0001_株式会社A_山田_[社保]資格喪失_公文書_1';
+      const result = applyShahoFolderNameFallbacks(info, folderName, false);
+      expect(result.noticeTitle).toBe('何か特殊な通知書');
+    });
+
+    it('SHAHO_TITLE_MAP に該当しないパターンは info をそのまま返す', () => {
+      const folderName = '0001_株式会社A_[雇保]資格取得_公文書_1';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, false);
+      expect(result).toEqual(emptyInfo);
+    });
+  });
+
+  describe('isApplicationCopy=true（届出控経路: ファイル名は `届出控.pdf` に統一）', () => {
+    it('[社保]資格喪失 → 被保険者名クリア＋通知書名「届出控」', () => {
+      const folderName =
+        '0002_ニキ株式会社_3513312_陳 修_[社保]資格喪失届(単記)_202605080957403094_・・・';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, true);
+      expect(result.noticeTitle).toBe('届出控');
+      expect(result.firstInsurerName).toBe('');
+      expect(result.insurerCount).toBe(0);
+      expect(result.allInsurers).toEqual([]);
+    });
+
+    it('[社保]資格取得 → 「届出控」', () => {
+      const folderName = '0002_株式会社A_2971676_鈴木花子_[社保]資格取得_公文書_1';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, true);
+      expect(result.noticeTitle).toBe('届出控');
+      expect(result.firstInsurerName).toBe('');
+    });
+
+    it('[社保]育児休業等申出書 → 「届出控」', () => {
+      const folderName = '0002_株式会社A_山田太郎_[社保]育児休業等申出書_公文書_1';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, true);
+      expect(result.noticeTitle).toBe('届出控');
+    });
+
+    it('[社保]新規適用 → 「届出控」（会社単位扱い）', () => {
+      const folderName = '0002_株式会社X_[社保]新規適用_公文書_1';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, true);
+      expect(result.noticeTitle).toBe('届出控');
+      expect(result.firstInsurerName).toBe('');
+    });
+
+    it('既存の被保険者名やタイトルがあっても、届出控時は全クリアして「届出控」に統一', () => {
+      const info: NamingInfo = {
+        firstInsurerName: '陳　修',
+        insurerCount: 1,
+        allInsurers: [{ name: '陳　修' }],
+        noticeTitle: '何かのタイトル',
+      };
+      const folderName = '0002_株式会社A_陳 修_[社保]資格喪失_公文書_1';
+      const result = applyShahoFolderNameFallbacks(info, folderName, true);
+      expect(result.noticeTitle).toBe('届出控');
+      expect(result.firstInsurerName).toBe('');
+      expect(result.allInsurers).toEqual([]);
+    });
+
+    it('[社保]賞与支払 → 「届出控」（SHAHO_TITLE_MAP 非該当パターンでも [社保] であれば対象）', () => {
+      const folderName =
+        '0002_株式会社三休橋地所_3031935_原 岬平_[社保]賞与支払,70歳以上被用者賞与支払_・・・';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, true);
+      expect(result.noticeTitle).toBe('届出控');
+      expect(result.firstInsurerName).toBe('');
+    });
+
+    it('[社保]算定基礎 → 「届出控」', () => {
+      const folderName =
+        '0002_株式会社VALM_[社保]算定基礎,70歳以上被用者算定基礎(CSV方式)_・・・';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, true);
+      expect(result.noticeTitle).toBe('届出控');
+    });
+
+    it('[社保]月額変更 → 「届出控」', () => {
+      const folderName = '0002_株式会社A_山田太郎_[社保]月額変更届_公文書_1';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, true);
+      expect(result.noticeTitle).toBe('届出控');
+    });
+
+    it('[社保]扶養異動 → 「届出控」', () => {
+      const folderName = '0002_株式会社A_山田太郎_[社保]扶養異動届_公文書_1';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, true);
+      expect(result.noticeTitle).toBe('届出控');
+    });
+
+    it('[社保] 以外（[雇保]/[労保]等）は isApplicationCopy=true でも素通し', () => {
+      const folderName = '0002_株式会社A_[雇保]資格取得_公文書_1';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, true);
+      expect(result).toEqual(emptyInfo);
+    });
+  });
+});
+
+describe('isApplicationCopyFolder — kagami本文から届出控判定', () => {
+  it('「電子申請データの写し」を含む kagami → true', () => {
+    const kagami = `<?xml version="1.0" encoding="UTF-8"?>
+<DOC VERSION="1.0">
+  <BODY>
+    <TITLE>日本年金機構からのお知らせ</TITLE>
+    <MAINTXT>
+      <P>当機構が受理した電子申請データの写しをお返しするサービスを開始しております。</P>
+    </MAINTXT>
+  </BODY>
+</DOC>`;
+    expect(isApplicationCopyFolder(kagami)).toBe(true);
+  });
+
+  it('「申請書の写し」を含む kagami → true', () => {
+    const kagami = `<DOC><MAINTXT><P>別添申請書の写しを送付いたしますので、申請内容をご確認ください。</P></MAINTXT></DOC>`;
+    expect(isApplicationCopyFolder(kagami)).toBe(true);
+  });
+
+  it('公文書（通知書）の kagami → false', () => {
+    const kagami = `<?xml version="1.0" encoding="UTF-8"?>
+<DOC VERSION="1.0">
+  <BODY>
+    <MAINTXT>
+      <P>電子申請された申請について処理が完了しました。通知書がありますので、添付の通知書ファイルを参照してください。</P>
+    </MAINTXT>
+    <APPENDIX>
+      <APPTITLE>健康保険・厚生年金保険資格喪失確認通知書</APPTITLE>
+      <DOCLINK REF="7120002.pdf"></DOCLINK>
+    </APPENDIX>
+  </BODY>
+</DOC>`;
+    expect(isApplicationCopyFolder(kagami)).toBe(false);
+  });
+
+  it('undefined / 空文字列 → false', () => {
+    expect(isApplicationCopyFolder(undefined)).toBe(false);
+    expect(isApplicationCopyFolder('')).toBe(false);
   });
 });
 

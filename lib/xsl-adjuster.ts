@@ -79,9 +79,26 @@ export function adjustXslForA4(xslContent: string): string {
         margin: 0;
       }
     }
-    /* 外枠 .outline テーブル自体を横方向に拡張 */
+    /* 外枠 .outline テーブル自体を横方向に拡張 + 1ページ内に収める。
+       page-break-inside: avoid を付けない場合、7130001(算定基礎) や 7140001(月変) の
+       outline テーブルが Chromium の組版で 1px 単位で次ページに溢れ、
+       saikiloop 末尾の kaipage クラスの改行や kyoji 直前の改ページ指定と相まって
+       1 ページ分の白紙 (通知ページと教示文の間の空ページ) が挟まることがある。
+       注意: この CSS コメント内には HTML タグ風の文字列 (山括弧で囲んだ語) を
+       書かないこと。 XSL は XML としてパースされ、style 要素内も CDATA 扱いに
+       ならないため、コメント内の山括弧が開始タグとして誤認されてパースに失敗する。 */
     table.outline {
       width: 720px !important;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    /* kaipage クラスの改行はオリジナル XSL では未定義 (= 単なる改行) で
+       機能上の役割は無いが、改ページ指定の直前にあると Chromium が
+       「ページ末尾にぶら下がる1行」として扱い次ページに余白を生む原因になる。
+       非表示にして余分なフローを抑止する。 */
+    br.kaipage {
+      display: none;
     }
   `;
 

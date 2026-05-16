@@ -15,6 +15,11 @@ import { applyXsltTransformation } from './xslt-processor';
 import { generatePdfFromHtml } from './pdf-generator';
 import { optimizeXslForPdf } from './xsl-adjuster';
 import {
+  isShahoKoubunshoPdfFileName,
+  splitShahoKoubunshoPdf,
+  SplitPdfResult,
+} from './koubunsho-pdf-splitter';
+import {
   log,
   logIndent,
   logError,
@@ -383,8 +388,13 @@ async function detectDocumentPairs(
     const baseName = path.basename(xmlFile, path.extname(xmlFile));
 
     // kagami判定
-    const isKagami = baseName.toLowerCase() === 'kagami' ||
-                     /^\d{18}$/.test(baseName); // 到達番号形式
+    // 到達番号形式: 公文書(通知書)フォルダは18桁 (例 202605080957403094.xml)、
+    //              届出控(電子申請データの写し)フォルダは末尾に "00" 等が付いた
+    //              20桁になる (例 20260508095740309400.xml)。どちらも kagami として
+    //              扱わないと kagami本文ベースの届出控判定が効かない。
+    const isKagami =
+      baseName.toLowerCase() === 'kagami' ||
+      /^\d{18,20}$/.test(baseName);
 
     // 対応するXSLを探す
     let xslFile: string | undefined;
@@ -530,7 +540,7 @@ function generateIndividualInsurerXml(
 }
 
 /**
- * [社保]系の命名情報フォールバック対象マッピング
+ * [社保]系の命名情報フォールバック対象マッピング（公文書／通知書版）
  *
  * フォルダ名のパターン（key）にマッチした場合、value の通知書名を
  * 既定タイトル（`通知書` 等）の代わりに使用する。
@@ -549,6 +559,36 @@ const SHAHO_TITLE_MAP: Array<{
 ];
 
 /**
+ * 届出控（電子申請データの写し）フォルダの統一ファイル名
+ *
+ * 公文書（通知書）と届出控は同じフォルダ名パターン（`[社保]xxx`）を共有するため、
+ * kagami本文の判定（[[isApplicationCopyFolder]]）で届出控と判定された場合は
+ * 被保険者名・通知書名を一切付けず、シンプルに `届出控.pdf` に統一する。
+ * （ユーザー要望: 届出控フォルダでは被保険者名は不要、ファイル名から
+ *  この PDF が届出控だとひと目で分かれば十分）
+ */
+const APPLICATION_COPY_TITLE = '届出控';
+
+/**
+ * kagami の本文から「電子申請データの写し（届出控）」フォルダかを判定
+ *
+ * 公文書（通知書）と届出控（電子申請データの写し）はフォルダ名のパターンが同じで
+ * 視覚的に区別できないため、kagami XML 本文の固有フレーズで切り分ける。
+ *
+ * 検出フレーズ（届出控 kagami の MAINTXT に含まれる）:
+ *   - 「別添申請書の写しを送付いたしますので、申請内容をご確認ください。」
+ *   - 「当機構が受理した電子申請データの写しをお返しするサービス」
+ *
+ * 通知書（公文書）の kagami にはこれらの表現は出てこない。
+ */
+export function isApplicationCopyFolder(
+  kagamiXmlContent: string | undefined
+): boolean {
+  if (!kagamiXmlContent) return false;
+  return /電子申請データの写し|申請書の写し/.test(kagamiXmlContent);
+}
+
+/**
  * [社保]系フォルダ向けの命名情報フォールバック
  *
  * 背景:
@@ -558,11 +598,32 @@ const SHAHO_TITLE_MAP: Array<{
  *
  * 対策: フォルダ名 `{seq}_{会社名}_{被保険者名}_[社保]xxx_...` から
  * 被保険者名と通知書名を補完する（SHAHO_TITLE_MAPに対応するパターンがある場合のみ）。
+ *
+ * isApplicationCopy=true の場合は届出控版マップ（SHAHO_APPLICATION_COPY_TITLE_MAP）
+ * を参照し、通知書名を「…(届出控)」に切り替える。
  */
-function applyShahoFolderNameFallbacks(
+export function applyShahoFolderNameFallbacks(
   info: NamingInfo,
-  folderName: string
+  folderName: string,
+  isApplicationCopy: boolean = false
 ): NamingInfo {
+  // 届出控フォルダは被保険者名・通知書名を全て破棄して `届出控.pdf` に統一する。
+  // SHAHO_TITLE_MAP の 5 パターン（取得・喪失・育休・産休・新規適用）には
+  // 賞与支払 / 月額変更 / 算定基礎 / 扶養等が含まれないため、ここでは
+  // [社保] 系のフォルダ全般を対象とする。
+  // kagami 本文が「電子申請データの写し」等を含むことは isApplicationCopy で
+  // すでに確認済なので、フォルダ実体が届出控であることは保証されている。
+  if (isApplicationCopy) {
+    if (!/\[社保\]/.test(folderName)) return info;
+    return {
+      ...info,
+      firstInsurerName: '',
+      insurerCount: 0,
+      allInsurers: [],
+      noticeTitle: APPLICATION_COPY_TITLE,
+    };
+  }
+
   let entry: { title: string; isPerCompany?: boolean } | null = null;
   for (const e of SHAHO_TITLE_MAP) {
     if (e.pattern.test(folderName)) {
@@ -655,92 +716,132 @@ export async function processFolderDocuments(
     kagazmiXmlContent = await fs.readFile(kagazmiDoc.xmlPath, 'utf-8');
   }
 
+  // kagami本文から「電子申請データの写し（届出控）」フォルダかを判定
+  const isApplicationCopy = isApplicationCopyFolder(kagazmiXmlContent);
+  if (isApplicationCopy) {
+    logIndent('Detected application copy folder (届出控)', 2, 'ℹ️');
+  }
+
   for (let docIndex = 0; docIndex < folder.documents.length; docIndex++) {
     const doc = folder.documents[docIndex];
 
     logIndent(`📄 Document ${docIndex + 1}/${folder.documents.length}: ${doc.xmlFileName}`, 2);
 
-    // XMLとXSLを読み込み
-    const xmlContent = await fs.readFile(doc.xmlPath, 'utf-8');
-    const xslContent = await fs.readFile(doc.xslPath, 'utf-8');
+    // ドキュメント単位のtry/catchで、1つのXML/XSLペアの変換失敗が他のドキュメント
+    // (kagamiや別の被保険者PDF) や元ファイルのコピー処理を巻き込まないようにする。
+    // 例: 算定基礎の 7130001.xsl は xsl-adjuster の挿入CSS と相性が悪いケースが
+    // あり、ここで例外を投げる。フォルダ単位で投げるとフォルダ全体が変換エラー扱いに
+    // なるが、ドキュメント単位なら成功した分(kagamiなど)は保存できる。
+    try {
+      // XMLとXSLを読み込み
+      const xmlContent = await fs.readFile(doc.xmlPath, 'utf-8');
+      const xslContent = await fs.readFile(doc.xslPath, 'utf-8');
 
-    // 手続き種別を判定
-    const procedureInfo = detectProcedureType(xmlContent);
+      // 手続き種別を判定
+      const procedureInfo = detectProcedureType(xmlContent);
 
-    // 命名情報を抽出（フォルダ名ベースのフォールバック適用）
-    const rawNamingInfo = extractNamingInfo(
-      xmlContent,
-      procedureInfo.type,
-      kagazmiXmlContent
-    );
-    const namingInfo = applyShahoFolderNameFallbacks(
-      rawNamingInfo,
-      folder.folderName
-    );
-
-    // PDF生成戦略に応じて処理を分岐
-    if (
-      procedureInfo.pdfStrategy === 'individual' &&
-      namingInfo.allInsurers &&
-      namingInfo.allInsurers.length >= 1
-    ) {
-      // 個別PDF生成（取得・喪失の場合）
-      const pdfCount = namingInfo.allInsurers.length;
-      const pdfLabel = pdfCount === 1 ? 'PDF' : 'PDFs';
-      logIndent(`Generating ${pdfCount} individual ${pdfLabel}...`, 3);
-
-      // 各被保険者のブロックを抽出
-      const insurerBlocks = xmlContent.match(
-        /<_被保険者>[\s\S]*?<\/_被保険者>/g
+      // 命名情報を抽出（フォルダ名ベースのフォールバック適用）
+      const rawNamingInfo = extractNamingInfo(
+        xmlContent,
+        procedureInfo.type,
+        kagazmiXmlContent
+      );
+      const namingInfo = applyShahoFolderNameFallbacks(
+        rawNamingInfo,
+        folder.folderName,
+        isApplicationCopy
       );
 
-      if (insurerBlocks && insurerBlocks.length === namingInfo.allInsurers.length) {
-        // 各被保険者ごとにPDFを生成
-        for (let i = 0; i < namingInfo.allInsurers.length; i++) {
-          const insurer = namingInfo.allInsurers[i];
-          logIndent(`- Processing ${insurer.name}様...`, 4);
+      // PDF生成戦略に応じて処理を分岐
+      if (
+        procedureInfo.pdfStrategy === 'individual' &&
+        namingInfo.allInsurers &&
+        namingInfo.allInsurers.length >= 1
+      ) {
+        // 個別PDF生成（取得・喪失の場合）
+        const pdfCount = namingInfo.allInsurers.length;
+        const pdfLabel = pdfCount === 1 ? 'PDF' : 'PDFs';
+        logIndent(`Generating ${pdfCount} individual ${pdfLabel}...`, 3);
 
-          const individualXml = generateIndividualInsurerXml(
-            xmlContent,
-            insurerBlocks[i]
-          );
+        // 各被保険者のブロックを抽出
+        const insurerBlocks = xmlContent.match(
+          /<_被保険者>[\s\S]*?<\/_被保険者>/g
+        );
 
-          // XSLT変換
-          const html = await applyXsltTransformation(individualXml, optimizeXslForPdf(xslContent));
+        if (insurerBlocks && insurerBlocks.length === namingInfo.allInsurers.length) {
+          // 各被保険者ごとにPDFを生成（1人分の失敗で他人を巻き込まないよう個別try/catch）
+          for (let i = 0; i < namingInfo.allInsurers.length; i++) {
+            const insurer = namingInfo.allInsurers[i];
+            logIndent(`- Processing ${insurer.name}様...`, 4);
 
-          // PDF生成
-          const pdfBuffer = await generatePdfFromHtml(html);
+            try {
+              const individualXml = generateIndividualInsurerXml(
+                xmlContent,
+                insurerBlocks[i]
+              );
 
-          // 個別PDFファイル名を生成
-          const baseFileName = generateIndividualPdfFileName(
+              // XSLT変換
+              const html = await applyXsltTransformation(individualXml, optimizeXslForPdf(xslContent));
+
+              // PDF生成
+              const pdfBuffer = await generatePdfFromHtml(html);
+
+              // 個別PDFファイル名を生成
+              const baseFileName = generateIndividualPdfFileName(
+                procedureInfo.type,
+                insurer.name,
+                namingInfo.noticeTitle
+              );
+              // [社保]算定基礎フォルダでは「令和{n}年度算定_」プレフィックスを付与
+              const pdfFileName = applyShahoSanteiKisoYearPrefix(
+                baseFileName,
+                folder.folderName,
+                namingInfo.applicableDate
+              );
+
+              pdfs.push({
+                name: pdfFileName,
+                buffer: pdfBuffer,
+              });
+
+              logIndent(`✓ ${truncateFileName(pdfFileName, 50)}`, 4);
+            } catch (insurerError) {
+              logError(
+                `Failed to generate PDF for ${insurer.name}様, skipping this person`,
+                insurerError
+              );
+            }
+          }
+        } else {
+          // フォールバック：通常の連結PDF生成
+          logWarning('Failed to extract individual insurer blocks, generating combined PDF');
+
+          const pdfFileName = generateSafePdfFileName(
             procedureInfo.type,
-            insurer.name,
-            namingInfo.noticeTitle
+            namingInfo
           );
-          // [社保]算定基礎フォルダでは「令和{n}年度算定_」プレフィックスを付与
-          const pdfFileName = applyShahoSanteiKisoYearPrefix(
-            baseFileName,
-            folder.folderName,
-            namingInfo.applicableDate
-          );
-
+          const html = await applyXsltTransformation(xmlContent, optimizeXslForPdf(xslContent));
+          const pdfBuffer = await generatePdfFromHtml(html);
           pdfs.push({
             name: pdfFileName,
             buffer: pdfBuffer,
           });
 
-          logIndent(`✓ ${truncateFileName(pdfFileName, 50)}`, 4);
+          logIndent(`→ ${truncateFileName(pdfFileName, 50)} ✓`, 3);
         }
       } else {
-        // フォールバック：通常の連結PDF生成
-        logWarning('Failed to extract individual insurer blocks, generating combined PDF');
-
+        // 連結PDF生成（月額変更、算定基礎届、賞与、その他、または単独の場合）
         const pdfFileName = generateSafePdfFileName(
           procedureInfo.type,
           namingInfo
         );
+
+        // XSLT変換
         const html = await applyXsltTransformation(xmlContent, optimizeXslForPdf(xslContent));
+
+        // PDF生成
         const pdfBuffer = await generatePdfFromHtml(html);
+
         pdfs.push({
           name: pdfFileName,
           buffer: pdfBuffer,
@@ -748,25 +849,12 @@ export async function processFolderDocuments(
 
         logIndent(`→ ${truncateFileName(pdfFileName, 50)} ✓`, 3);
       }
-    } else {
-      // 連結PDF生成（月額変更、算定基礎届、賞与、その他、または単独の場合）
-      const pdfFileName = generateSafePdfFileName(
-        procedureInfo.type,
-        namingInfo
+    } catch (docError) {
+      logError(
+        `Failed to process document ${doc.xmlFileName}, skipping`,
+        docError
       );
-
-      // XSLT変換
-      const html = await applyXsltTransformation(xmlContent, optimizeXslForPdf(xslContent));
-
-      // PDF生成
-      const pdfBuffer = await generatePdfFromHtml(html);
-
-      pdfs.push({
-        name: pdfFileName,
-        buffer: pdfBuffer,
-      });
-
-      logIndent(`→ ${truncateFileName(pdfFileName, 50)} ✓`, 3);
+      // 次のドキュメントへ
     }
   }
 
@@ -956,6 +1044,66 @@ export function renamePdfIfNeeded(fileName: string, folderName: string): string 
 }
 
 /**
+ * `otherFiles` 内の 1 ファイルを処理した結果を表す
+ *   - 社保公文書PDF (7xxxxxx.pdf) → 被保険者ごとに分割した複数 PDF
+ *   - それ以外 → 元ファイルをリネームしたもの 1 件
+ */
+export interface ProcessedOtherFile {
+  name: string;
+  buffer: Buffer;
+  /** 分割によって生成されたものか（ログ用） */
+  splitFromOriginal?: string;
+}
+
+/**
+ * `otherFiles` 内の 1 ファイルを処理して、出力 ZIP に投入すべき
+ * `(name, buffer)` の配列を返す。
+ *
+ * 動作:
+ *   1) 社保公文書PDF（`7xxxxxx.pdf` の決まった ID）であれば、ページ単位で
+ *      被保険者を読み取って分割＋リネームを試みる。1 件以上抽出できた場合は
+ *      その配列を返す。
+ *   2) 上記で分割対象外、または被保険者が抽出できなかった場合は、従来通り
+ *      `renamePdfIfNeeded` でリネームした 1 件のみを返す。
+ *
+ * 例外時（読み込みエラーなど）は呼び出し側に投げ返す。
+ */
+export async function processOtherFile(
+  sourcePath: string,
+  fileName: string,
+  folderName: string
+): Promise<ProcessedOtherFile[]> {
+  const fileBuffer = await fs.readFile(sourcePath);
+
+  if (isShahoKoubunshoPdfFileName(fileName)) {
+    try {
+      const splits: SplitPdfResult[] = await splitShahoKoubunshoPdf(
+        fileBuffer,
+        fileName
+      );
+      if (splits.length > 0) {
+        return splits.map((s) => ({
+          name: s.name,
+          buffer: s.buffer,
+          splitFromOriginal: fileName,
+        }));
+      }
+      // 0 件 = 被保険者氏名がどこからも抽出できなかった
+      // → 通常リネーム経路にフォールバック
+    } catch (error) {
+      console.error(
+        `Failed to split shaho koubunsho PDF ${fileName}, falling back to plain rename:`,
+        error
+      );
+    }
+  }
+
+  // 通常のリネーム
+  const targetFileName = renamePdfIfNeeded(fileName, folderName);
+  return [{ name: targetFileName, buffer: fileBuffer }];
+}
+
+/**
  * 変換結果をZIPファイルにまとめる
  */
 export async function createResultZip(
@@ -1005,24 +1153,24 @@ export async function createResultZip(
           const sourcePath = path.join(folder.folderPath, fileName);
 
           try {
-            const fileBuffer = await fs.readFile(sourcePath);
-
-            // PDFファイルの場合、必要に応じてリネーム
-            const targetFileName = renamePdfIfNeeded(fileName, folder.folderName);
-            const safeName = fitEntryNameToShellLimit(folderPrefix, targetFileName);
-
-            zip.file(`${folderPrefix}${safeName}`, fileBuffer);
+            const outputs = await processOtherFile(
+              sourcePath,
+              fileName,
+              folder.folderName
+            );
+            for (const out of outputs) {
+              const safeName = fitEntryNameToShellLimit(folderPrefix, out.name);
+              zip.file(`${folderPrefix}${safeName}`, out.buffer);
+            }
           } catch (error) {
             console.error(`Failed to copy file ${fileName}:`, error);
           }
         }
       }
-    } else {
-      // エラーが発生した場合、エラーファイルを配置
-      const errorMessage = `PDFの変換中にエラーが発生しました\n\nフォルダ: ${folder.folderName}\nエラー内容: ${folder.error}\n\n対処方法:\n1. 元のZIPファイルの内容を確認してください\n2. 不足しているファイルを追加して再度アップロードしてください`;
-
-      zip.file(`${folderPrefix}変換エラー.txt`, errorMessage);
     }
+    // 旧版では失敗時に `変換エラー.txt` を出力していたが、ユーザー要望により廃止。
+    // 変換できたものだけを出力し、失敗内容はサーバーログで確認する。
+    // (processFoldersToZip と挙動を揃える)
   }
 
   // ルートファイル（Excelなど）をコピー
@@ -1203,20 +1351,49 @@ export async function processFoldersToZip(
 
           const sourcePath = path.join(folder.folderPath, fileName);
           try {
-            await fs.access(sourcePath);
-            const targetFileName = renamePdfIfNeeded(fileName, folder.folderName);
-            if (targetFileName !== fileName) {
-              callbacks?.onLog?.(
-                `[${folderNumber}/${total}]   ✏️ Renamed: ${truncateFileName(fileName, 40)} → ${truncateFileName(targetFileName, 50)}`
-              );
+            const outputs = await processOtherFile(
+              sourcePath,
+              fileName,
+              folder.folderName
+            );
+
+            for (const out of outputs) {
+              if (out.splitFromOriginal) {
+                callbacks?.onLog?.(
+                  `[${folderNumber}/${total}]   ✂️ Split + renamed: ${truncateFileName(out.splitFromOriginal, 30)} → ${truncateFileName(out.name, 50)}`
+                );
+              } else if (out.name !== fileName) {
+                callbacks?.onLog?.(
+                  `[${folderNumber}/${total}]   ✏️ Renamed: ${truncateFileName(fileName, 40)} → ${truncateFileName(out.name, 50)}`
+                );
+              }
+
+              const safeName = fitEntryNameToShellLimit(folderPrefix, out.name);
+              if (safeName !== out.name) {
+                callbacks?.onLog?.(
+                  `[${folderNumber}/${total}]   ✂️ Shortened for Windows shell: ${truncateFileName(out.name, 40)} → ${truncateFileName(safeName, 50)}`
+                );
+              }
+
+              // 分割PDFはバッファ、それ以外（コピー）はファイル参照でストリーム
+              if (out.splitFromOriginal) {
+                const tmpPdfPath = path.join(
+                  intermediatePdfDir,
+                  `${pdfCounter++}.pdf`
+                );
+                await fs.writeFile(tmpPdfPath, out.buffer);
+                zip.file(
+                  `${folderPrefix}${safeName}`,
+                  createReadStream(tmpPdfPath)
+                );
+              } else {
+                // 元ファイルは内容を変えないのでReadStreamで直接流す
+                zip.file(
+                  `${folderPrefix}${safeName}`,
+                  createReadStream(sourcePath)
+                );
+              }
             }
-            const safeName = fitEntryNameToShellLimit(folderPrefix, targetFileName);
-            if (safeName !== targetFileName) {
-              callbacks?.onLog?.(
-                `[${folderNumber}/${total}]   ✂️ Shortened for Windows shell: ${truncateFileName(targetFileName, 40)} → ${truncateFileName(safeName, 50)}`
-              );
-            }
-            zip.file(`${folderPrefix}${safeName}`, createReadStream(sourcePath));
           } catch (error) {
             console.error(`Failed to copy file ${fileName}:`, error);
           }
@@ -1228,9 +1405,14 @@ export async function processFoldersToZip(
         `[${folderNumber}/${total}] ✅ Completed: ${pdfCount} PDFs generated`
       );
     } catch (error) {
+      // ここに到達するのは想定外の障害（fs/JSZip層のエラー等）。
+      // PDF変換そのものは processFolderDocuments 内のドキュメント単位 try/catch で
+      // 個別に救えるため、ここで `変換エラー.txt` を出力するとフォルダ内のkagamiPDFや
+      // 元ファイルコピーが既に成功している場合でも誤って「全失敗」のように見える。
+      // ユーザー要望: エラーになった場合でも出力ZIPに「変換エラー.txt」を入れず、
+      // 変換できたものと元ファイルだけを残す。
+      // 障害内容はサーバーログ + UIログに残してユーザーが事象を確認できるようにする。
       const errorMessage = error instanceof Error ? error.message : '不明なエラー';
-      const errorContent = `PDFの変換中にエラーが発生しました\n\nフォルダ: ${folder.folderName}\nエラー内容: ${errorMessage}\n\n対処方法:\n1. 元のZIPファイルの内容を確認してください\n2. 不足しているファイルを追加して再度アップロードしてください`;
-      zip.file(`${folderPrefix}変換エラー.txt`, errorContent);
       callbacks?.onFolderComplete?.(i, total, folder.folderName, false, 0, errorMessage);
       callbacks?.onLog?.(`[${folderNumber}/${total}] ❌ Error: ${errorMessage}`);
     }
