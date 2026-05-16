@@ -4,6 +4,7 @@
  */
 
 import { ProcedureType } from './procedure-detector';
+import { SHAHO_NOTICE_TITLES } from './document-names';
 
 export interface NamingInfo {
   // 被保険者情報
@@ -60,26 +61,12 @@ export function extractNoticeTitle(
   xmlContent: string,
   kagazmiXmlContent?: string
 ): string {
-  // N7xxxxx形式の場合、ルートタグから通知書名を決定
-  const rootTagMatch = xmlContent.match(/<(N7\d{6})[\s>]/);
+  // N7xxxxx形式のルートタグから N を剥がして通知書名を決定
+  const rootTagMatch = xmlContent.match(/<N(7\d{6})[\s>]/);
   if (rootTagMatch) {
-    const rootTag = rootTagMatch[1];
-    const documentTitles: Record<string, string> = {
-      'N7012001': '（社会保険）適用通知書',
-      'N7100001': '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書',
-      'N7120002': '健康保険・厚生年金保険資格喪失確認通知書',
-      'N7130001': '健康保険・厚生年金保険被保険者標準報酬決定通知書',
-      'N7140001': '健康保険・厚生年金保険被保険者標準報酬改定通知書',
-      'N7150001': '健康保険・厚生年金保険被保険者賞与額決定通知書',
-      'N7170003': '健康保険被扶養者（異動）決定通知書',
-      'N7180001': '厚生年金保険70歳以上被用者該当および標準報酬月額相当額のお知らせ',
-      'N7200001': '厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ',
-      'N7210001': '厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ',
-      'N7220001': '厚生年金保険70歳以上被用者標準賞与額相当額のお知らせ',
-    };
-
-    if (documentTitles[rootTag]) {
-      return documentTitles[rootTag];
+    const noticeId = rootTagMatch[1];
+    if (SHAHO_NOTICE_TITLES[noticeId]) {
+      return SHAHO_NOTICE_TITLES[noticeId];
     }
   }
 

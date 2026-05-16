@@ -1045,26 +1045,33 @@ export function renamePdfIfNeeded(fileName: string, folderName: string): string 
 
 /**
  * `otherFiles` 内の 1 ファイルを処理した結果を表す
- *   - 社保公文書PDF (7xxxxxx.pdf) → 被保険者ごとに分割した複数 PDF
- *   - それ以外 → 元ファイルをリネームしたもの 1 件
+ *   - 社保公文書PDF (7xxxxxx.pdf) → 被保険者ごとに分割した複数 PDF（buffer 付き）
+ *   - それ以外 → 元ファイルをリネームしただけの 1 件（buffer 無し: 呼び出し側で
+ *     sourcePath からストリーミングする）
+ *
+ * buffer を optional にすることで、pass-through ファイル（公文書PDF分割対象外）
+ * を呼び出し側で `createReadStream(sourcePath)` のまま流せる。eager に
+ * `fs.readFile` してから JSZip に渡し直すと、サイズの大きい既存PDFが
+ * メモリに乗ってしまう。
  */
 export interface ProcessedOtherFile {
   name: string;
-  buffer: Buffer;
+  /** 新規生成された分割PDFのみ Buffer を持つ。pass-through は undefined。 */
+  buffer?: Buffer;
   /** 分割によって生成されたものか（ログ用） */
   splitFromOriginal?: string;
 }
 
 /**
- * `otherFiles` 内の 1 ファイルを処理して、出力 ZIP に投入すべき
- * `(name, buffer)` の配列を返す。
+ * `otherFiles` 内の 1 ファイルを処理して、出力 ZIP に投入すべきエントリ配列を返す。
  *
  * 動作:
- *   1) 社保公文書PDF（`7xxxxxx.pdf` の決まった ID）であれば、ページ単位で
- *      被保険者を読み取って分割＋リネームを試みる。1 件以上抽出できた場合は
- *      その配列を返す。
- *   2) 上記で分割対象外、または被保険者が抽出できなかった場合は、従来通り
- *      `renamePdfIfNeeded` でリネームした 1 件のみを返す。
+ *   1) 社保公文書PDF（`7xxxxxx.pdf` の決まった ID）であれば、PDFをロードして
+ *      被保険者ごとに分割＋リネームを試みる。1 件以上抽出できた場合は
+ *      `{ name, buffer, splitFromOriginal }` 配列を返す。
+ *   2) 上記で分割対象外、または被保険者が抽出できなかった場合は、
+ *      `renamePdfIfNeeded` でリネームした `{ name }` のみを返す（buffer なし。
+ *      呼び出し側は sourcePath から直接ストリーミングする）。
  *
  * 例外時（読み込みエラーなど）は呼び出し側に投げ返す。
  */
@@ -1073,10 +1080,9 @@ export async function processOtherFile(
   fileName: string,
   folderName: string
 ): Promise<ProcessedOtherFile[]> {
-  const fileBuffer = await fs.readFile(sourcePath);
-
   if (isShahoKoubunshoPdfFileName(fileName)) {
     try {
+      const fileBuffer = await fs.readFile(sourcePath);
       const splits: SplitPdfResult[] = await splitShahoKoubunshoPdf(
         fileBuffer,
         fileName
@@ -1098,9 +1104,9 @@ export async function processOtherFile(
     }
   }
 
-  // 通常のリネーム
+  // 通常のリネーム (buffer は呼び出し側で sourcePath からストリーム)
   const targetFileName = renamePdfIfNeeded(fileName, folderName);
-  return [{ name: targetFileName, buffer: fileBuffer }];
+  return [{ name: targetFileName }];
 }
 
 /**
@@ -1160,7 +1166,9 @@ export async function createResultZip(
             );
             for (const out of outputs) {
               const safeName = fitEntryNameToShellLimit(folderPrefix, out.name);
-              zip.file(`${folderPrefix}${safeName}`, out.buffer);
+              // 分割PDFは Buffer、pass-through は sourcePath から都度読み込む
+              const data = out.buffer ?? (await fs.readFile(sourcePath));
+              zip.file(`${folderPrefix}${safeName}`, data);
             }
           } catch (error) {
             console.error(`Failed to copy file ${fileName}:`, error);
@@ -1376,7 +1384,7 @@ export async function processFoldersToZip(
               }
 
               // 分割PDFはバッファ、それ以外（コピー）はファイル参照でストリーム
-              if (out.splitFromOriginal) {
+              if (out.buffer) {
                 const tmpPdfPath = path.join(
                   intermediatePdfDir,
                   `${pdfCounter++}.pdf`

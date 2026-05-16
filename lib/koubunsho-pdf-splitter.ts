@@ -24,6 +24,8 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import { PDFDocument } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { SHAHO_NOTICE_TITLES } from './document-names';
+import { sanitizeFileName } from './xml-parser';
 
 /**
  * Next.js (Turbopack/webpack) でバンドルされた環境では、pdfjs-dist が
@@ -35,40 +37,28 @@ import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
  * (`node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs`) を `file://` URL に
  * 変換して GlobalWorkerOptions.workerSrc に設定する。
  *
- * 純 Node.js 実行 (たとえば scripts/extract-pdf-text.mjs) では
- * 自動解決が効くため不要だが、Next.js バンドル下でも同じコードが動くように
- * モジュールロード時に一度だけ設定する。
- *
  * Windows では `c:\path\to\file` のような絶対パスを直接渡すと pdfjs-dist が
  * 「Only URLs with a scheme in: file, data, and node are supported」と
  * エラーになるため、必ず `pathToFileURL` で `file:///c:/...` に変換する。
+ *
+ * モジュールロード時の副作用ではなく初回呼び出し時に lazy 初期化することで、
+ * テストや serverless cold start で `process.cwd()` が想定外のパスでも
+ * splitShahoKoubunshoPdf を呼ばない限り影響しない。
  */
-const PDFJS_WORKER_PATH = path.resolve(
-  process.cwd(),
-  'node_modules',
-  'pdfjs-dist',
-  'legacy',
-  'build',
-  'pdf.worker.mjs'
-);
-pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(PDFJS_WORKER_PATH).href;
-
-/**
- * 通知書 ID → 通知書名 マッピング
- * （xml-info-extractor.ts の N7xxxxx タイトルと揃える）
- */
-const NOTICE_ID_TO_TITLE: Record<string, string> = {
-  '7100001': '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書',
-  '7120002': '健康保険・厚生年金保険資格喪失確認通知書',
-  '7130001': '健康保険・厚生年金保険被保険者標準報酬決定通知書',
-  '7140001': '健康保険・厚生年金保険被保険者標準報酬改定通知書',
-  '7150001': '健康保険・厚生年金保険被保険者賞与額決定通知書',
-  '7170003': '健康保険被扶養者（異動）決定通知書',
-  '7180001': '厚生年金保険70歳以上被用者該当および標準報酬月額相当額のお知らせ',
-  '7200001': '厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ',
-  '7210001': '厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ',
-  '7220001': '厚生年金保険70歳以上被用者標準賞与額相当額のお知らせ',
-};
+let pdfjsWorkerConfigured = false;
+function ensurePdfjsWorkerConfigured(): void {
+  if (pdfjsWorkerConfigured) return;
+  const workerPath = path.resolve(
+    process.cwd(),
+    'node_modules',
+    'pdfjs-dist',
+    'legacy',
+    'build',
+    'pdf.worker.mjs'
+  );
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+  pdfjsWorkerConfigured = true;
+}
 
 /**
  * 7xxxxxx.pdf 形式の社保公文書PDF判定
@@ -77,16 +67,27 @@ const NOTICE_ID_TO_TITLE: Record<string, string> = {
  * 7012001 のフォールバックリネームは bulk-zip-processor の getFixedKoubunshoFilename
  * で別途扱う。
  */
+/** `7012001` (新規適用; 会社単位) は被保険者氏名が無いため分割対象外。 */
+const NON_SPLITTABLE_NOTICE_IDS = new Set(['7012001']);
+
+function extractNoticeId(fileName: string): string | null {
+  const m = fileName.match(/^(7\d{6})\.pdf$/i);
+  return m ? m[1] : null;
+}
+
 export function isShahoKoubunshoPdfFileName(fileName: string): boolean {
-  if (!/^7\d{6}\.pdf$/i.test(fileName)) return false;
-  const id = fileName.slice(0, 7);
-  return id !== '7012001' && Object.hasOwn(NOTICE_ID_TO_TITLE, id);
+  const id = extractNoticeId(fileName);
+  if (!id) return false;
+  return (
+    !NON_SPLITTABLE_NOTICE_IDS.has(id) &&
+    Object.hasOwn(SHAHO_NOTICE_TITLES, id)
+  );
 }
 
 export function getNoticeTitleFromPdfFileName(fileName: string): string | null {
-  const m = fileName.match(/^(7\d{6})\.pdf$/i);
-  if (!m) return null;
-  return NOTICE_ID_TO_TITLE[m[1]] ?? null;
+  const id = extractNoticeId(fileName);
+  if (!id) return null;
+  return SHAHO_NOTICE_TITLES[id] ?? null;
 }
 
 interface TextItemWithPos {
@@ -174,6 +175,7 @@ interface PageClassification {
  * PDFのすべてのページをスキャンして、通知ページ／付記ページに分類する
  */
 async function classifyPages(pdfBuffer: Buffer): Promise<PageClassification[]> {
+  ensurePdfjsWorkerConfigured();
   const doc = await pdfjsLib.getDocument({
     data: new Uint8Array(pdfBuffer),
     // ログを抑制
@@ -268,7 +270,8 @@ export async function splitShahoKoubunshoPdf(
     for (const cp of copied) newDoc.addPage(cp);
 
     const outBytes = await newDoc.save();
-    const outName = `${displayName}様_${title}.pdf`;
+    // PDF抽出名は OS 不正文字 (/, :, * 等) を含み得るため必ず sanitize する
+    const outName = `${sanitizeFileName(displayName)}様_${title}.pdf`;
 
     results.push({
       name: outName,
