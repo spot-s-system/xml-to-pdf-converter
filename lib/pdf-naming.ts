@@ -167,7 +167,10 @@ export function sanitizeFileName(fileName: string): string {
     sanitized = sanitized.replace(new RegExp(`\\${char}`, 'g'), replacement);
   }
 
-  // 連続する空白を1つに
+  // 連続する空白を1つに（全角スペース U+3000 もまとめて半角スペースに揃える）
+  // 漢字氏名 `高橋　雅幸` (U+3000) は `高橋 雅幸` (半角) として保持する。
+  // 氏名は被保険者の本人特定情報なので、ファイル名で切り詰めず full に残す方針
+  // （文字数制限は fitEntryNameToShellLimit が通知書名側で吸収する）。
   sanitized = sanitized.replace(/\s+/g, ' ');
 
   // 先頭・末尾の空白を削除

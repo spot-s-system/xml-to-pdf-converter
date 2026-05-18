@@ -25,7 +25,22 @@ import { pathToFileURL } from 'url';
 import { PDFDocument } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { SHAHO_NOTICE_TITLES } from './document-names';
-import { sanitizeFileName } from './xml-parser';
+
+/**
+ * 公文書 PDF から抽出した氏名をファイル名に使うための軽量サニタイズ。
+ *
+ * `xml-parser` の `sanitizeFileName` は内部の半角/全角スペースまで削除するが、
+ * 公文書 PDF の氏名表記は姓と名の間に視覚的空白を持つ（`東 鈴加`、`陳 修` 等）
+ * のが慣例で、フォルダ名表記 (`_東 鈴加_`) とも揃える必要がある。
+ * ここでは OS のファイル名禁止文字のみを除去し、空白は最大 1 個に collapse して
+ * 保持する。
+ */
+function sanitizeInsurerNameForFilename(name: string): string {
+  return name
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 /**
  * Next.js (Turbopack/webpack) でバンドルされた環境では、pdfjs-dist が
@@ -94,10 +109,15 @@ interface TextItemWithPos {
   str: string;
   x: number;
   y: number;
+  /**
+   * フォント高さ。pdfjs の transform[3] (y-scale) から得る。
+   * テストから手書きアイテムを渡す場合は省略可（=データ行扱い）。
+   */
+  h?: number;
 }
 
 /**
- * pdfjs の TextContent から `(str, x, y)` の配列を抽出
+ * pdfjs の TextContent から `(str, x, y, h)` の配列を抽出
  */
 function toItemsWithPos(textItems: unknown[]): TextItemWithPos[] {
   const out: TextItemWithPos[] = [];
@@ -107,8 +127,9 @@ function toItemsWithPos(textItems: unknown[]): TextItemWithPos[] {
     if (!item.str.trim()) continue;
     const x = item.transform[4];
     const y = item.transform[5];
+    const h = Math.abs(item.transform[3]);
     if (typeof x !== 'number' || typeof y !== 'number') continue;
-    out.push({ str: item.str, x, y });
+    out.push({ str: item.str, x, y, h });
   }
   return out;
 }
@@ -117,12 +138,21 @@ function toItemsWithPos(textItems: unknown[]): TextItemWithPos[] {
  * 1ページ分のテキストアイテムから被保険者名を抽出する
  *
  * アルゴリズム:
- *   1. 「被保険者氏名」というラベルテキストを探す（ヘッダ位置 = headerX, headerY）
- *   2. ヘッダの直下 15〜45 pt のy範囲 + headerX-50 〜 headerX+90 のx範囲 にある
- *      テキストアイテムを取得（賞与は y-29、喪失は y-23 ほど下に存在。隣接列
- *      ヘッダの x ≒ headerX+95 と重ならないよう +90 で制限）
- *   3. x昇順にソートして連結 → 氏名
- *   4. 1文字も拾えなければ null（=このページは通知ページではない）
+ *   1. 「被保険者氏名」というラベルテキストを探す（ヘッダ位置 = headerX, headerY, headerH）
+ *   2. ヘッダの 15〜70 pt 下 + headerX-50 〜 headerX+90 のx範囲にある
+ *      テキストアイテムを取得（賞与=y-29、喪失=y-23、資格取得=y-63 のデータ行を
+ *      まとめて捕捉。隣接列ヘッダの x ≒ headerX+95 と重ならないよう +90 で制限）
+ *   3. **二段ヘッダ対策**: 7100001 (資格取得確認および標準報酬決定通知書) などは
+ *      ヘッダ直下にサブヘッダ行（`※1 生年月日`、`※2 種別(性別)`、`被保険者区分` 等）
+ *      が並び、その下に本来のデータ行が来る。サブヘッダはヘッダと同じ小さいフォント
+ *      (h ≈ 7.9-8.0)、データ行は本文フォント (h ≈ 9-10) なので、ヘッダより明確に
+ *      大きいフォントの項目だけをデータ行とみなす。
+ *   4. データ行が見つからない場合は、サブヘッダの無いレイアウト（テストから手書きで
+ *      渡されるケース含む）と判断し、範囲内アイテムをそのまま使う。
+ *   5. x昇順にソートして連結 → 氏名
+ *   6. 1文字も拾えなければ null（=このページは通知ページではない）
+ *   7. 抽出結果が `※` を含むなど明らかなサブヘッダ／ラベル断片なら null
+ *      （誤検出した場合の安全側フォールバック）。
  *
  * @internal — テスト用 export。本番コードはこの関数を直接使わない。
  */
@@ -137,32 +167,81 @@ export function extractInsurerNameFromItems(
   const header = headers[0];
   const headerX = header.x;
   const headerY = header.y;
+  const headerH = header.h ?? 7.9;
 
-  // データ行の探索範囲
-  const dataYmin = headerY - 45;
+  // データ行の探索範囲。二段ヘッダ (7100001) のデータ行は最大 ~63pt 下に存在するため
+  // 旧 -45 → -70 に拡張。
+  const dataYmin = headerY - 70;
   const dataYmax = headerY - 15;
   const dataXmin = headerX - 50;
   const dataXmax = headerX + 90;
 
-  const dataItems = items
-    .filter(
-      (it) =>
-        it.y >= dataYmin &&
-        it.y <= dataYmax &&
-        it.x >= dataXmin &&
-        it.x <= dataXmax
-    )
-    .sort((a, b) => a.x - b.x);
+  const inColumn = items.filter(
+    (it) =>
+      it.y >= dataYmin &&
+      it.y <= dataYmax &&
+      it.x >= dataXmin &&
+      it.x <= dataXmax
+  );
 
-  if (dataItems.length === 0) return null;
+  if (inColumn.length === 0) return null;
 
-  // 連結（PDFのテキスト抽出は通常スペースを含むので、内部スペースは保持）
-  const name = dataItems
-    .map((it) => it.str)
-    .join('')
-    .trim();
+  // ヘッダフォント高さ + 1.0pt を超える項目 = 本文サイズの実データ
+  // （サブヘッダはヘッダと同じ ~7.9-8.0pt、データ行は ~9-10pt）
+  // h が無い（テストの手書きアイテム）は判定不可なので素通し
+  const dataRowItems = inColumn.filter(
+    (it) => it.h === undefined || it.h > headerH + 1.0
+  );
+
+  const picked = dataRowItems.length > 0 ? dataRowItems : inColumn;
+  picked.sort((a, b) => a.x - b.x);
+
+  // 隣接アイテム間に視覚的な空白（姓 と 名 の区切り等）がある場合は半角スペースで連結する。
+  // フォルダ名は `東 鈴加` のように半角スペース区切りなので、ここで揃えて
+  // 入力ZIPの表記と一致させる。
+  // 判定: 直前アイテムの右端 + (フォント高さ * 0.5) より次のアイテムの x が右にある場合
+  // を「明確な空白」とみなす。半角スペース相当のアイテム自体は str==' '+, 通常 picked
+  // には含まれない（toItemsWithPos が trim 済みアイテムだけ拾うため）。
+  const parts: string[] = [];
+  for (let i = 0; i < picked.length; i++) {
+    const it = picked[i];
+    if (i > 0) {
+      const prev = picked[i - 1];
+      const prevRight =
+        prev.x + Math.abs(prev.h ?? headerH) * Math.max(prev.str.length, 1);
+      const charWidth = Math.abs(it.h ?? headerH);
+      const gap = it.x - prevRight;
+      // 半角スペース 1 文字分以上の空白がある場合に区切りを入れる
+      // (Japanese char width ≈ font height; 半角スペースは ~50%)
+      if (gap > charWidth * 0.4) {
+        parts.push(' ');
+      }
+    }
+    parts.push(it.str);
+  }
+
+  const name = parts.join('').replace(/  +/g, ' ').trim();
 
   if (!name) return null;
+
+  // サブヘッダ／列ラベルを誤抽出していないかの最終チェック。
+  // `※` を含む、または既知の列ラベル名と完全一致するものは無効扱い。
+  if (name.includes('※')) return null;
+  const KNOWN_LABELS = new Set([
+    '生年月日',
+    '種別',
+    '種別(性別)',
+    '種別（性別）',
+    '取得区分',
+    '区分',
+    '被保険者区分',
+    '整理番号',
+    '基礎年金番号',
+    '郵便番号',
+    '被保険者住所',
+  ]);
+  if (KNOWN_LABELS.has(name)) return null;
+
   return name;
 }
 
@@ -270,8 +349,9 @@ export async function splitShahoKoubunshoPdf(
     for (const cp of copied) newDoc.addPage(cp);
 
     const outBytes = await newDoc.save();
-    // PDF抽出名は OS 不正文字 (/, :, * 等) を含み得るため必ず sanitize する
-    const outName = `${sanitizeFileName(displayName)}様_${title}.pdf`;
+    // PDF抽出名は OS 不正文字 (/, :, * 等) を含み得るため必ず sanitize する。
+    // ただし氏名内の半角スペース（姓-名の区切り）は保持する。
+    const outName = `${sanitizeInsurerNameForFilename(displayName)}様_${title}.pdf`;
 
     results.push({
       name: outName,
