@@ -181,14 +181,16 @@ describe('integration: 資格取得_70歳以上.zip', async () => {
       expect(pdfs.length).toBeGreaterThan(0);
 
       // 7100001 由来の出力
+      // 注: 通知書名の末尾は 89文字制限のため切り詰められる可能性があるので、
+      // 識別可能なプレフィックスでマッチさせる（被保険者名はフル長で保持される方針）
       const p7100001 = pdfs.findIndex((p) =>
-        /様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書\.pdf$/.test(p)
+        /様_健康保険・厚生年金保険資格取得確認/.test(p) && p.endsWith('.pdf')
       );
       expect(p7100001).toBeGreaterThanOrEqual(0);
 
       // 7180001 由来の出力（70歳以上 該当）
       const p7180001 = pdfs.findIndex((p) =>
-        /様_厚生年金保険70歳以上被用者該当および標準報酬月額相当額のお知らせ\.pdf$/.test(p)
+        /様_厚生年金保険70歳以上被用者該当/.test(p) && p.endsWith('.pdf')
       );
       expect(p7180001).toBeGreaterThanOrEqual(0);
 
@@ -273,8 +275,11 @@ describe('integration: 長文字数_取得月変.zip (89文字超過→被保険
       // (トリミング時に最低 1 文字は被保険者名を残す保証の回帰検出)
       expect(pdfBasenames.some((n) => n.startsWith('様_'))).toBe(false);
 
-      // 「{名前}様_{通知書名}.pdf」形式のPDFについて、suffix `様_…通知書.pdf` が
-      // 切られず保持されていること (= 被保険者名側だけを切るトリミング方式の検証)。
+      // 「{名前}様[他N名]_{通知書名}.pdf」形式のPDFについて、
+      // - `<name>様[他N名]_` の身元情報部分は full に保持され、
+      // - その直後に通知書名（途中で切れていてもOK）と `.pdf` が続くこと。
+      // 89文字制限のため通知書名末尾は切り詰められる可能性があるため、通知書名の
+      // 全長は要求しない（被保険者氏名は full に残す、というトリミング方針の検証）。
       // `表紙.pdf` / `通知書.pdf` などの kagami/フォールバック名は対象外。
       const samaPdfs = pdfBasenames.filter((n) => n.includes('様'));
       expect(samaPdfs.length).toBeGreaterThan(0);
@@ -377,6 +382,93 @@ describe('integration: 育児_社保雇保混在.zip', async () => {
       expect(entries.some((e) =>
         /\[社保\]育児休業等終了届.+\/7020001\.pdf$/.test(e)
       )).toBe(true);
+    },
+    600_000
+  );
+});
+
+describe('integration: 展開エラー_氏名トリミング回帰.zip', async () => {
+  // ユーザー実データ由来のリグレッションフィクスチャ。複合バグを 1 ZIP で再現:
+  //   1. [社保]資格取得 7100001.pdf の二段ヘッダ（※1/※2/※3 サブヘッダ）から
+  //      氏名を誤抽出して `生年月日※2種別(性別)※3取得区分被保険者区分様_…` を
+  //      生成、結果 ZIP のエントリパスが 89 文字制限を超過し Windows Shell で
+  //      「すべて展開」が 0 件扱いとなり展開不能だった
+  //   2. fitEntryNameToShellLimit が氏名末尾を切り詰めていたため
+  //      `高橋 雅幸` → `高橋 雅` / `滝本 愛奈` → `滝` のように苗字だけになる
+  //      苦情が発生
+  //   3. 会社名が極端に長く `_[雇保]xxx` の `]` まで `・・・` で切り詰められた
+  //      フォルダ（0009 株式会社Ｙａｃｈｔ Ｌｉｆｅ Ｄｅｓｉｇｎ）で
+  //      `202604…-0001_xxx.pdf` のリネーム漏れが発生
+  // それぞれ koubunsho-pdf-splitter / bulk-zip-processor の修正で解消済み。
+  const fixtureName = '展開エラー_氏名トリミング回帰.zip';
+  const has = await fixtureExists(fixtureName);
+
+  it.skipIf(!has)(
+    '全エントリが 89 文字以下に収まり、被保険者氏名がフル長で保持される',
+    async () => {
+      const { entries, pdfs, outputDir } = await runPipeline(fixtureName, {
+        dumpLabel: '展開エラー_氏名トリミング回帰',
+      });
+
+      // (1) 展開可能性: 全エントリパスが Windows Shell 互換の 89 文字以下
+      // 1 件でも超過すると `すべて展開` がエントリ 0 件扱いになる
+      const overLimit = entries.filter((e) => e.length > 89);
+      expect(
+        overLimit,
+        `89文字超のエントリが残っている:\n${overLimit
+          .map((e) => `  ${e.length}: ${e}`)
+          .join('\n')}`
+      ).toEqual([]);
+
+      // (2) 氏名フル保持: ユーザー指摘の 7 名がいずれも氏名フル長で出力される
+      // 通知書名側は budget 都合で末尾が切り詰められる可能性があるため
+      // 「`{フル氏名}様_` で始まる PDF が存在する」のみ assert する
+      const namesToPreserve = [
+        '高橋 雅幸', // 0001 [社保]資格取得 (XML+XSL)
+        '都宮 実桜', // 0003 [社保]資格取得 (XML+XSL)
+        '滝本 愛奈', // 0005 [雇保]資格取得 (PDF 既存 → リネーム)
+        '山西 龍生', // 0006 [雇保]資格取得 (PDF 既存 → リネーム)
+        '東 鈴加', //   0007 [社保]資格取得 7100001.pdf (PDF分割; 二段ヘッダ)
+        '大月 由佳子', // 0009 [雇・・・ (フォルダ名末尾切り詰め)
+        '太田 翔也', // 0010 [雇保]資格取得 (フォルダ名 65 文字超過)
+      ];
+      for (const name of namesToPreserve) {
+        expect(
+          pdfs.some((p) => {
+            const base = p.split('/').pop() ?? '';
+            return base.startsWith(`${name}様`);
+          }),
+          `氏名 "${name}" がフル長で含まれる PDF が見つからない`
+        ).toBe(true);
+      }
+
+      // (3) 二段ヘッダ誤抽出のリグレッション検出: ※やサブヘッダ用語が
+      // 氏名として紛れ込んでいないこと
+      const malformedNames = pdfs.filter((p) => {
+        const base = p.split('/').pop() ?? '';
+        const beforeSama = base.split('様')[0];
+        return /[※]/.test(beforeSama) || /生年月日|種別|取得区分|被保険者区分/.test(beforeSama);
+      });
+      expect(
+        malformedNames,
+        `サブヘッダ用語が氏名として誤抽出された PDF:\n${malformedNames.join('\n')}`
+      ).toEqual([]);
+
+      // (4) 雇保 リネーム漏れ検出: 0009 フォルダ末尾が `_[雇・・・` で
+      // 切り詰められていても、`{日付プレフィックス}-{連番}_xxx.pdf` 形式の
+      // ファイルが `{大月 由佳子}様_xxx.pdf` にリネームされていること
+      const unrenamedYakuho = pdfs.filter((p) => {
+        const base = p.split('/').pop() ?? '';
+        // `202604090933309263-0001_xxx.pdf` のような原形が残っているもの
+        return /^\d{10,}-\d+_/.test(base);
+      });
+      expect(
+        unrenamedYakuho,
+        `雇保PDFがリネームされず原形のまま:\n${unrenamedYakuho.join('\n')}`
+      ).toEqual([]);
+
+      // eslint-disable-next-line no-console
+      console.log(`[dump] PDFs written to: ${outputDir}`);
     },
     600_000
   );

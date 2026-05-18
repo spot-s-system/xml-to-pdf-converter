@@ -675,7 +675,7 @@ export default function Home() {
 
               {/* 凡例 */}
               <div className="text-xs text-blue-800/80 dark:text-blue-200/80 pt-2 px-1">
-                <span className="text-green-700 dark:text-green-400 font-semibold">✓</span> 自動処理あり / <span className="text-amber-700 dark:text-amber-400 font-semibold">✗</span> 自動処理なし（既存PDFは元名のまま残置）
+                <span className="text-green-700 dark:text-green-400 font-semibold">✓</span> 自動処理あり
               </div>
             </div>
           </div>
