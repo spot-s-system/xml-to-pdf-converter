@@ -887,13 +887,23 @@ export function extractInsurerNameFromFolderName(folderName: string): string | n
   //   育   → 育児休業出生後休業給付 / 育児時短就業給付 / 育児休業出生時休業給付
   //          ＋ 切り詰められた「育」「育児休業」等
   // 高年齢雇用継続給付・介護休業給付金・教育訓練給付金などの他系統には誤マッチしない。
+  //
+  // さらに、会社名が極端に長いと `_[雇保]xxx` の `]` も含めて切り詰められ、
+  // `..._[雇・・・` のような形になることがある（例: 0009 株式会社Ｙａｃｈｔ...）。
+  // この場合は手続き種別が判別できないため、フォルダ末尾が `_[雇・・・` で
+  // 終わっているケースに限り、雇保系の対象手続きとみなして救済する。
+  // （`_[雇` のみで判断するのは「教育訓練給付金」等の対象外手続きまで巻き込む
+  //   可能性があるが、`・・・` で終端＝OS のパス長切り詰めが発生したケースに
+  //   限定すれば実害は少ない）
   const isYakuhoTarget = /\[雇保\](?:資格|育)/.test(folderName);
-  if (!isYakuhoTarget) return null;
+  const isTruncatedYakuho = /_\[雇・・・\/?$/.test(folderName);
 
-  // 「_{被保険者名}_[雇保]手続き種別」の直前フィールドを取得
+  if (!isYakuhoTarget && !isTruncatedYakuho) return null;
+
+  // 「_{被保険者名}_[雇保]手続き種別」または「_{被保険者名}_[雇・・・」の直前フィールドを取得
   // 内部の半角/全角スペースは保持し、前後のみtrim
   // 手続きタグ以降の末尾 `_` は必須としない（パス長切り詰めで末尾が「(離職・・・」のように切れても拾う）
-  const match = folderName.match(/_([^_]+)_\[雇保\]/);
+  const match = folderName.match(/_([^_]+)_\[雇/);
   if (match) {
     return match[1].trim();
   }
@@ -1207,23 +1217,29 @@ const SHELL_ZIP_ENTRY_MAX_LEN = 89;
 
 /**
  * フォルダプレフィックス + ファイル名 の合計が SHELL_ZIP_ENTRY_MAX_LEN を
- * 超える場合、被保険者名（`様` より前の部分）の末尾を切り詰めて短縮する。
+ * 超える場合、**通知書名（`様` より後ろの末尾部分）** を切り詰めて短縮する。
  * 省略記号 (`…`) は付けず、収まる文字数までで素直に切る。
  *
+ * 方針: **被保険者氏名は身元特定情報なのでフル長で保持**し、通知書名側の末尾
+ * （例: `(被保険者用)` や `通知書` の末尾文字）を削る。同じフォルダ内の複数 PDF は
+ * 通知書名の **先頭** が異なる（`雇用保険被保険者証...` vs `雇用保険資格喪失届...`
+ * 等）ため、末尾を削っても衝突しない。
+ *
  * 例:
- *   folderPrefix = "0001_合同会社オ・フィル・デュ・ジャポン_アルヌ ﾌﾛｰﾚﾝｽ/" (約 47 chars)
- *   fileName     = "ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞﾌｲﾝ ﾃﾚｽﾞ様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書.pdf" (約 64 chars)
- *   合計 = 111 chars > 89 → 被保険者名側のみを切り詰めて:
- *   "ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞ様_健康保険・厚生年金保険資格取得確認および標準報酬決定通知書.pdf"
- *   (`様` 以降の通知書名は切らない)
+ *   folderPrefix = "0005_株式会社リプロ　_3813855_滝本 愛奈_[雇保]資格取得・・・/" (59 chars)
+ *   fileName     = "滝本 愛奈様_雇用保険被保険者証、資格取得等確認通知書(被保険者用).pdf" (40 chars)
+ *   合計 = 99 chars > 89 → 通知書名末尾を切り詰めて:
+ *   "滝本 愛奈様_雇用保険被保険者証、資格取得等確認通知.pdf" (30 chars)
+ *   （`滝本 愛奈様_` の身元情報部分はそのまま保持）
  *
- * `様` を含まないファイル（例: "R7年9月_…通知書.pdf"、固定名公文書）は、
- * 拡張子を保ったままベース名末尾から素直に切り詰める。
+ * フォールバック:
+ *   - 氏名フル + `様_` + 通知書名 1 文字 + `.pdf` でも budget を超える極端ケース:
+ *     最低 1 文字の氏名 + `様_` + 通知書名 + `.pdf` まで切り詰める。それでも無理な
+ *     ら元のファイル名で返す（=別ツールで展開してもらう）。
  *
- * フォルダ名側は触らない（入力 ZIP の構造を尊重するため）。
- * フォルダ名 + 様以降 (固定suffix) だけで限界を超えるケース、または
- * 被保険者名を 1 文字も残せないケースは諦めて素通し（ユーザーが
- * 別の解凍ツールを使う必要がある）。
+ * `様` を含まないファイル（例: 固定名 `表紙.pdf` / `届出控.pdf` 等）は拡張子を
+ * 保ったままベース名末尾から素直に切り詰める。フォルダ名側は触らない（入力 ZIP の
+ * 構造を尊重するため）。
  */
 function fitEntryNameToShellLimit(
   folderPrefix: string,
@@ -1235,21 +1251,66 @@ function fitEntryNameToShellLimit(
   const budget = SHELL_ZIP_ENTRY_MAX_LEN - folderPrefix.length;
   if (budget < 1) return fileName;
 
-  // 被保険者名 + 様[他N名]_通知書名.pdf の形式: `様` より前だけを切る
+  const dot = fileName.lastIndexOf('.');
+  const ext = dot >= 0 ? fileName.slice(dot) : '';
+  const baseWithoutExt = dot >= 0 ? fileName.slice(0, dot) : fileName;
+  // 拡張子を含めるとどうしても 1 文字も中身が残らない場合は諦める
+  if (ext.length + 1 > budget) return fileName;
+
   const samaIdx = fileName.indexOf('様');
   if (samaIdx > 0) {
-    const namePart = fileName.slice(0, samaIdx);
-    const suffix = fileName.slice(samaIdx); // "様..." を含む固定部分
-    const nameBudget = budget - suffix.length;
-    if (nameBudget < 1) return fileName; // 被保険者名を 1 文字も残せない
-    if (namePart.length <= nameBudget) return fileName; // 既に収まっている
-    return namePart.slice(0, nameBudget) + suffix;
+    // `<name>様[他N名]_<title>` 形式を想定。
+    // 通知書タイトルとの境界は **`様` より後ろにある最後の `_`** を採用する。
+    // （通知書タイトルにはアンダースコアが含まれないため、これが安全な境界）
+    const lastUnderscore = baseWithoutExt.lastIndexOf('_');
+
+    if (lastUnderscore > samaIdx) {
+      // 氏名+様[+他N名] + `_` (タイトル直前まで) を keepPart として全長保持
+      const keepPart = baseWithoutExt.slice(0, lastUnderscore + 1);
+      const titlePart = baseWithoutExt.slice(lastUnderscore + 1);
+
+      const fixedLen = keepPart.length + ext.length;
+      // 氏名フル + タイトル 1 文字以上を確保できるなら、タイトル末尾だけを削る
+      if (fixedLen + 1 <= budget) {
+        const titleBudget = budget - fixedLen;
+        if (titlePart.length <= titleBudget) return fileName; // 既に収まる
+        return keepPart + titlePart.slice(0, titleBudget) + ext;
+      }
+
+      // 氏名フルではタイトル 1 文字すら入らない極端ケース:
+      // 最低 1 文字の氏名 + `様_他N名_` 等 + タイトル末尾切り詰め + `.pdf`
+      const MIN_NAME_CHARS = 1;
+      const namePart = baseWithoutExt.slice(0, samaIdx);
+      const tagPart = baseWithoutExt.slice(samaIdx, lastUnderscore + 1); // 様[他N名]_
+      const fixedAfterMinName = MIN_NAME_CHARS + tagPart.length + ext.length;
+      const titleBudget2 = budget - fixedAfterMinName;
+      if (titleBudget2 >= 1) {
+        return (
+          namePart.slice(0, MIN_NAME_CHARS) +
+          tagPart +
+          titlePart.slice(0, titleBudget2) +
+          ext
+        );
+      }
+      // それでも無理なら元のファイル名で返す
+      return fileName;
+    }
+
+    // `様` の後にアンダースコアが見つからない異常形式
+    // → 旧来通り氏名末尾を切り詰める
+    const suffixWithExt = fileName.slice(samaIdx);
+    const nameBudget = budget - suffixWithExt.length;
+    if (nameBudget < 1) return fileName;
+    if (nameBudget >= samaIdx) return fileName;
+    let trimmedName = baseWithoutExt.slice(0, nameBudget);
+    while (trimmedName.length > 1 && /[ 　]$/.test(trimmedName)) {
+      trimmedName = trimmedName.slice(0, -1);
+    }
+    return trimmedName + suffixWithExt;
   }
 
   // `様` を含まないファイル: 拡張子を残してベース名末尾を切る
-  const dot = fileName.lastIndexOf('.');
-  const ext = dot >= 0 ? fileName.slice(dot) : '';
-  const base = dot >= 0 ? fileName.slice(0, dot) : fileName;
+  const base = baseWithoutExt;
   const baseBudget = budget - ext.length;
   if (baseBudget < 1) return fileName;
   return base.slice(0, baseBudget) + ext;

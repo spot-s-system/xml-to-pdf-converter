@@ -38,6 +38,15 @@ describe('extractInsurerNameFromFolderName — [雇保] フォルダから被保
     expect(extractInsurerNameFromFolderName(folder)).toBe('川村 夏菜');
   });
 
+  it('長い会社名で `_[雇・・・` まで切り詰められても被保険者名は抽出できる', () => {
+    // 0009 (株式会社Ｙａｃｈｔ Ｌｉｆｅ Ｄｅｓｉｇｎ など全角混じりの長い社名)
+    // のケース: 手続きタグ `[雇保]` の `]` 以降が `・・・` で削られていても
+    // 直前の被保険者名フィールドは取得して救済する。
+    const folder =
+      '0009_株式会社Ｙａｃｈｔ　Ｌｉｆｅ　Ｄｅｓｉｇｎ_大月 由佳子_[雇・・・';
+    expect(extractInsurerNameFromFolderName(folder)).toBe('大月 由佳子');
+  });
+
   it('他系統（高年齢雇用継続給付・介護休業給付金など）は誤マッチしない', () => {
     const folder = '0010_株式会社C_山田太郎_[雇保]高年齢雇用継続給付_公文書_1';
     expect(extractInsurerNameFromFolderName(folder)).toBeNull();
@@ -390,6 +399,23 @@ describe('renamePdfIfNeeded — 統合リネームロジック', () => {
     it('数字で始まらない既存PDFはリネームしない', () => {
       const folder = '0013_株式会社1SEC_川村夏菜_[雇保]資格喪失_公文書_1';
       expect(renamePdfIfNeeded('既存のPDF.pdf', folder)).toBe('既存のPDF.pdf');
+    });
+
+    it('長い会社名で `_[雇・・・` まで切り詰められたフォルダでもリネームできる', () => {
+      // 0009 株式会社Ｙａｃｈｔ Ｌｉｆｅ Ｄｅｓｉｇｎ など、会社名が極端に長く
+      // 「_[雇保]xxx」の `]` 以降が `・・・` で切り詰められたケース。
+      // 手続き種別は判別不能だが、被保険者名は手続きタグ直前から取得して
+      // 数字プレフィックス置換を適用する。
+      const folder =
+        '0009_株式会社Ｙａｃｈｔ　Ｌｉｆｅ　Ｄｅｓｉｇｎ_大月 由佳子_[雇・・・';
+      expect(
+        renamePdfIfNeeded(
+          '202604090933309263-0001_雇用保険被保険者証、資格取得等確認通知書(被保険者用).pdf',
+          folder
+        )
+      ).toBe(
+        '大月 由佳子様_雇用保険被保険者証、資格取得等確認通知書(被保険者用).pdf'
+      );
     });
   });
 
