@@ -115,6 +115,8 @@ export default function Home() {
         setTimeout(() => {
           setProgress(0);
           setIsConverting(false);
+          // ダウンロードトリガ後、アップロード枠を自動クリア（×ボタンを押さなくても次のZIPに切り替えられる）
+          setZipFile(null);
         }, 500);
         return;
       }
@@ -604,11 +606,13 @@ export default function Home() {
                 </summary>
                 <ul className="space-y-1 px-3 pb-3 pt-1 ml-2">
                   <li><span className="text-green-700 dark:text-green-400 font-semibold">変換（XML→PDF, 個人毎）</span></li>
-                  <li className="ml-4">対象: フォルダ名に <code>[社保]育児休業等申出書</code> を含む（XMLがあれば変換）</li>
+                  <li className="ml-4">対象: フォルダ名に <code>[社保]育児</code> を含む（XMLがあれば変換）。<code>[社保]育児・・・</code> のように末尾が切り詰められたケースも対応。</li>
                   <li className="ml-4">出力: {'{被保険者名}様_健康保険・厚生年金保険育児休業等取得者確認通知書.pdf'}</li>
-                  <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">✓ 既存PDFのリネーム（公文書フォルダ）</span></li>
-                  <li className="ml-4">対象: <code>_公文書_</code> を含むフォルダ内の既存PDF全て</li>
-                  <li className="ml-4">出力: {'{被保険者名}様_健康保険・厚生年金保険育児休業等取得者確認通知書.pdf'} に統一</li>
+                  <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">✓ 既存PDFのリネーム（個人毎）</span></li>
+                  <li className="ml-4">対象: 同梱の <code>7019001.pdf</code>（育児休業等取得者確認通知書） / <code>7020001.pdf</code>（育児休業等取得者終了確認通知書）。<code>_公文書_</code> suffix が無いフォーマットでも対応。</li>
+                  <li className="ml-4">出力 (7019001): {'{被保険者名}様_健康保険・厚生年金保険育児休業等取得者確認通知書.pdf'}</li>
+                  <li className="ml-4">出力 (7020001): {'{被保険者名}様_健康保険・厚生年金保険育児休業等取得者終了確認通知書.pdf'}</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">⚠️ <code>[社保]育児休業等終了届</code> フォルダにも <code>[社保]育児</code> prefix マッチ規則により同タイトルが適用されます（PDF ID で 7020001 と区別）。</li>
                 </ul>
               </details>
 
