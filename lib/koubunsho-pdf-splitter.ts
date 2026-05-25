@@ -82,8 +82,16 @@ function ensurePdfjsWorkerConfigured(): void {
  * 7012001 のフォールバックリネームは bulk-zip-processor の getFixedKoubunshoFilename
  * で別途扱う。
  */
-/** `7012001` (新規適用; 会社単位) は被保険者氏名が無いため分割対象外。 */
-const NON_SPLITTABLE_NOTICE_IDS = new Set(['7012001']);
+/**
+ * 分割対象外の通知書 ID
+ *  - 7012001: 新規適用（会社単位） — 被保険者氏名が無い
+ *  - 7019001 / 7020001: 育児休業等取得者(終了)確認通知書 — レイアウトが異なり
+ *    splitter の「被保険者氏名」ヘッダ検出が「養育する子の生年月日」などの
+ *    フィールドラベルを誤抽出する。これらは元々 1 人 1 ファイル構造のため、
+ *    bulk-zip-processor 側でフォルダ名から `{被保険者名}様_{タイトル}.pdf` に
+ *    リネームする経路へフォールスルーさせる。
+ */
+const NON_SPLITTABLE_NOTICE_IDS = new Set(['7012001', '7019001', '7020001']);
 
 function extractNoticeId(fileName: string): string | null {
   const m = fileName.match(/^(7\d{6})\.pdf$/i);
