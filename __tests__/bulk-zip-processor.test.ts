@@ -222,6 +222,19 @@ describe('applyShahoFolderNameFallbacks — 通知書名・被保険者名のフ
       const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, false);
       expect(result).toEqual(emptyInfo);
     });
+
+    it('[社保]養育期間 → 「厚生年金保険養育期間標準報酬月額特例申出受理通知書」', () => {
+      // 実フォルダ名は末尾切り詰めで `[社保]養育期間標準報酬月額特例・・・` の形で渡る。
+      const folderName =
+        '0001_株式会社揚羽_2997483_奥 絵梨花_[社保]養育期間標準報酬月額特例・・・';
+      const result = applyShahoFolderNameFallbacks(emptyInfo, folderName, false);
+      expect(result.noticeTitle).toBe(
+        '厚生年金保険養育期間標準報酬月額特例申出受理通知書'
+      );
+      expect(result.firstInsurerName).toBe('奥 絵梨花');
+      expect(result.allInsurers).toEqual([{ name: '奥 絵梨花' }]);
+      expect(result.insurerCount).toBe(1);
+    });
   });
 
   describe('isApplicationCopy=true（届出控経路: ファイル名は `届出控.pdf` に統一）', () => {
