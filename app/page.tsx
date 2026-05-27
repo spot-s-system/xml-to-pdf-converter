@@ -51,6 +51,21 @@ export default function Home() {
     return () => window.clearInterval(id);
   }, [isConverting, startTime]);
 
+  // 自動変換: ZIPがセットされたら即座に変換を開始する。
+  //
+  // ユーザー要望: 「一括変換」ボタンを押さずに、アップロードしたら即変換したい。
+  // - 変換完了後は handleDownload が setZipFile(null) を呼ぶので zipFile が null
+  //   に戻り、本 effect が再発火しない（無限ループにならない）。
+  // - 変換中に同じファイルが再度セットされても isConverting で多重起動を防ぐ。
+  // - handleConvert は state を多数参照するため deps に入れず、zipFile 変化時のみ
+  //   発火させる。
+  useEffect(() => {
+    if (zipFile && !isConverting) {
+      handleConvert();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zipFile]);
+
   // ログから [current/total] パターンを拾ってフォルダ進捗を更新
   useEffect(() => {
     if (logs.length === 0) return;
@@ -294,7 +309,7 @@ export default function Home() {
           <CardHeader>
             <CardTitle>ZIPファイルアップロード</CardTitle>
             <CardDescription>
-              XML/XSLファイルを含むZIPファイルをアップロードしてください
+              ZIPをドロップ／選択すると<strong>自動的に変換が開始されます</strong>。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -349,21 +364,25 @@ export default function Home() {
               </div>
             )}
 
-            <Button
-              onClick={handleConvert}
-              disabled={!zipFile || isConverting}
-              className="w-full"
-              size="lg"
-            >
-              {isConverting ? (
-                <>変換中...</>
-              ) : (
-                <>
-                  <Download className="h-5 w-5 mr-2" />
-                  一括変換
-                </>
-              )}
-            </Button>
+            {/* ZIP がセット済み or 変換中のときだけボタンを表示する。
+                未選択時はドロップゾーンの説明で誘導するため、空のボタンは出さない。 */}
+            {(zipFile || isConverting) && (
+              <Button
+                onClick={handleConvert}
+                disabled={!zipFile || isConverting}
+                className="w-full"
+                size="lg"
+              >
+                {isConverting ? (
+                  <>変換中...</>
+                ) : (
+                  <>
+                    <Download className="h-5 w-5 mr-2" />
+                    再変換
+                  </>
+                )}
+              </Button>
+            )}
           </CardContent>
         </Card>
 
@@ -449,9 +468,10 @@ export default function Home() {
           <h2 className="text-base lg:text-lg font-semibold mb-2">使い方</h2>
           <ol className="list-decimal list-inside space-y-1 text-xs lg:text-sm text-muted-foreground">
             <li>公文書ZIPファイルをドラッグ&ドロップまたはクリックして選択</li>
-            <li>「一括変換」ボタンをクリック</li>
+            <li><strong>アップロード後、自動的に変換が開始されます</strong></li>
             <li>処理状況がリアルタイムでログに表示されます</li>
             <li>変換されたPDFが自動的にダウンロードされます</li>
+            <li className="text-xs text-amber-700 dark:text-amber-300">※ 同じZIPで再変換したい場合は「再変換」ボタンを利用してください。</li>
           </ol>
 
           <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg max-h-[60vh] overflow-y-auto">
