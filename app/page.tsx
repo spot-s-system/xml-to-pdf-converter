@@ -367,6 +367,24 @@ export default function Home() {
           </CardContent>
         </Card>
 
+        {/* 注意書き: 社名圧縮について（アップロードカード直下） */}
+        <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50/70 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-900 dark:text-amber-100 space-y-1">
+          <p className="font-semibold flex items-center gap-2">
+            <span aria-hidden>⚠️</span>
+            出力ZIPで社名が省略される場合があります
+          </p>
+          <p className="text-xs leading-relaxed">
+            一部社名や被保険者名（従業員番号含む）が長い場合、Windows エクスプローラの ZIP エントリパス長制限（89文字）に収めるため、
+            出力ZIPの<strong>フォルダ名の社名部分のみを末尾から必要分だけ切り詰めます</strong>。
+            被保険者名・帳票名（通知書名）は本人特定・書類識別の核となるため、フル保持します。
+          </p>
+          <p className="text-xs leading-relaxed opacity-90">
+            例: <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">0001_サンプル長社名インターナショナル株式会社_0000000_山田 太郎_[雇保]資格取得_…</code>
+            {' → '}
+            <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">0001_サンプル長社名イン_0000000_山田 太郎_[雇保]資格取得_…</code>
+          </p>
+        </div>
+
         {/* リアルタイムログ（アップロードカードの下、同じ左カラム内に表示） */}
         {(logs.length > 0 || isConverting) && (
           <Card className="shadow-lg">
@@ -602,16 +620,21 @@ export default function Home() {
               <details className="group rounded border border-blue-200/60 dark:border-blue-800/60 bg-white/40 dark:bg-blue-900/20">
                 <summary className="cursor-pointer select-none px-3 py-2 font-semibold list-none flex items-center gap-2 hover:bg-blue-100/60 dark:hover:bg-blue-900/40 rounded">
                   <span className="inline-block transition-transform group-open:rotate-90">▶</span>
-                  [社保]育児休業
+                  [社保]育児休業 / [社保]養育期間特例
                 </summary>
                 <ul className="space-y-1 px-3 pb-3 pt-1 ml-2">
                   <li><span className="text-green-700 dark:text-green-400 font-semibold">変換（XML→PDF, 個人毎）</span></li>
                   <li className="ml-4">対象: フォルダ名に <code>[社保]育児</code> を含む（XMLがあれば変換）。<code>[社保]育児・・・</code> のように末尾が切り詰められたケースも対応。</li>
                   <li className="ml-4">出力: {'{被保険者名}様_健康保険・厚生年金保険育児休業等取得者確認通知書.pdf'}</li>
+                  <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">変換（XML→PDF, 個人毎）— 養育期間特例</span></li>
+                  <li className="ml-4">対象: フォルダ名に <code>[社保]養育期間</code> を含む（対象XML: <code>7027001.xml</code>）。<code>[社保]養育期間標準報酬月額特例・・・</code> のように末尾が切り詰められたケースも対応。</li>
+                  <li className="ml-4">出力: {'{被保険者名}様_厚生年金保険養育期間標準報酬月額特例申出受理通知書.pdf'}</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">被保険者名はXML（<code>{'<被保険者の漢字氏名>'}</code>「の」助詞付き）から取得。取れない場合はフォルダ名 <code>{'…_{被保険者名}_[社保]養育期間_…'}</code> から補完。</li>
                   <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">✓ 既存PDFのリネーム（個人毎）</span></li>
-                  <li className="ml-4">対象: 同梱の <code>7019001.pdf</code>（育児休業等取得者確認通知書） / <code>7020001.pdf</code>（育児休業等取得者終了確認通知書）。<code>_公文書_</code> suffix が無いフォーマットでも対応。</li>
+                  <li className="ml-4">対象: 同梱の <code>7019001.pdf</code>（育児休業等取得者確認通知書） / <code>7020001.pdf</code>（育児休業等取得者終了確認通知書） / <code>7027001.pdf</code>（養育期間標準報酬月額特例申出受理通知書）。<code>_公文書_</code> suffix が無いフォーマットでも対応。</li>
                   <li className="ml-4">出力 (7019001): {'{被保険者名}様_健康保険・厚生年金保険育児休業等取得者確認通知書.pdf'}</li>
                   <li className="ml-4">出力 (7020001): {'{被保険者名}様_健康保険・厚生年金保険育児休業等取得者終了確認通知書.pdf'}</li>
+                  <li className="ml-4">出力 (7027001): {'{被保険者名}様_厚生年金保険養育期間標準報酬月額特例申出受理通知書.pdf'}</li>
                   <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">⚠️ <code>[社保]育児休業等終了届</code> フォルダにも <code>[社保]育児</code> prefix マッチ規則により同タイトルが適用されます（PDF ID で 7020001 と区別）。</li>
                 </ul>
               </details>

@@ -11,6 +11,7 @@ const wrapN = (rootTag: string, body = '') => `<?xml version="1.0"?><${rootTag}>
 describe('extractNoticeTitle — N7xxxxxx ルートタグからの通知書名解決', () => {
   it.each([
     ['N7012001', '（社会保険）適用通知書'],
+    ['N7027001', '厚生年金保険養育期間標準報酬月額特例申出受理通知書'],
     ['N7100001', '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書'],
     ['N7120002', '健康保険・厚生年金保険資格喪失確認通知書'],
     ['N7130001', '健康保険・厚生年金保険被保険者標準報酬決定通知書'],
@@ -96,6 +97,31 @@ describe('extractFromSocialInsurance — 被保険者ブロックからの名前
     const info = extractFromSocialInsurance(xml, '取得');
     expect(info.firstInsurerName).toBe('ｱﾙﾇ ﾌﾛｰﾚﾝｽ ｼﾞﾖｾﾞﾌｲﾝ ﾃﾚｽﾞ');
     expect(info.insurerCount).toBe(1);
+  });
+
+  it('N7027001 養育期間特例: <被保険者の漢字氏名> (「の」助詞付き) からも抽出する', () => {
+    // N7027001 のタグ名は他通知書と異なり「の」助詞付き。
+    // 実 XML: <被保険者の漢字氏名><![CDATA[奥　絵梨花]]></被保険者の漢字氏名>
+    const xml = `<?xml version="1.0"?><N7027001>
+      <_被保険者>
+        <被保険者のカナ氏名>ｵｸ ｴﾘｶ</被保険者のカナ氏名>
+        <被保険者の漢字氏名><![CDATA[奥　絵梨花]]></被保険者の漢字氏名>
+      </_被保険者>
+    </N7027001>`;
+    const info = extractFromSocialInsurance(xml, 'その他');
+    expect(info.firstInsurerName).toBe('奥　絵梨花');
+    expect(info.insurerCount).toBe(1);
+  });
+
+  it('N7027001 で <被保険者の漢字氏名> 空のとき <被保険者のカナ氏名> へフォールバック', () => {
+    const xml = `<?xml version="1.0"?><N7027001>
+      <_被保険者>
+        <被保険者の漢字氏名><![CDATA[]]></被保険者の漢字氏名>
+        <被保険者のカナ氏名>ｵｸ ｴﾘｶ</被保険者のカナ氏名>
+      </_被保険者>
+    </N7027001>`;
+    const info = extractFromSocialInsurance(xml, 'その他');
+    expect(info.firstInsurerName).toBe('ｵｸ ｴﾘｶ');
   });
 
   it('被用者漢字氏名 が空のとき被用者カナ氏名へフォールバック (70歳以上 + 外国籍)', () => {

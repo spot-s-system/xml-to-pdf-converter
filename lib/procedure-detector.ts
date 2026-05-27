@@ -33,6 +33,7 @@ export function detectProcedureType(xmlContent: string): ProcedureInfo {
   // N7xxxxx系の社会保険フォーマット
   const socialInsurancePatterns: Record<string, ProcedureType> = {
     N7012001: 'その他', // 新規適用通知書（会社単位）
+    N7027001: 'その他', // 厚生年金保険養育期間標準報酬月額特例申出受理通知書（1人1ファイル）
     N7100001: '取得', // 資格取得確認および標準報酬決定通知書
     N7120002: '喪失', // 資格喪失確認通知書
     N7130001: '取得', // 標準報酬決定通知書

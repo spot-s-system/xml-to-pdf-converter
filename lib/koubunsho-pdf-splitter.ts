@@ -90,8 +90,17 @@ function ensurePdfjsWorkerConfigured(): void {
  *    フィールドラベルを誤抽出する。これらは元々 1 人 1 ファイル構造のため、
  *    bulk-zip-processor 側でフォルダ名から `{被保険者名}様_{タイトル}.pdf` に
  *    リネームする経路へフォールスルーさせる。
+ *  - 7027001: 養育期間標準報酬月額特例申出受理通知書 — 1 人 1 ファイル。
+ *    XML タグ名も `<被保険者の漢字氏名>` のように「の」助詞付きで通常の
+ *    `被保険者氏名` ヘッダレイアウトと異なるため、7019001/7020001 と同じく
+ *    フォルダ名フォールバック経路に流す。
  */
-const NON_SPLITTABLE_NOTICE_IDS = new Set(['7012001', '7019001', '7020001']);
+const NON_SPLITTABLE_NOTICE_IDS = new Set([
+  '7012001',
+  '7019001',
+  '7020001',
+  '7027001',
+]);
 
 function extractNoticeId(fileName: string): string | null {
   const m = fileName.match(/^(7\d{6})\.pdf$/i);

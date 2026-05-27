@@ -10,6 +10,7 @@ describe('detectProcedureType — N7xxxxxx 社会保険フォーマット', () =
   it.each([
     // [rootTag,       expectedType, expectedStrategy]
     ['N7012001', 'その他',  'combined'],   // 新規適用（会社単位）
+    ['N7027001', 'その他',  'combined'],   // 養育期間特例（1人1ファイル, 連結扱い）
     ['N7100001', '取得',    'individual'], // 資格取得
     ['N7120002', '喪失',    'individual'], // 資格喪失
     ['N7130001', '取得',    'individual'], // 算定基礎

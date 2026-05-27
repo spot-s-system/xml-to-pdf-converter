@@ -24,6 +24,15 @@ describe('isShahoKoubunshoPdfFileName — 社保公文書PDF判定', () => {
     expect(isShahoKoubunshoPdfFileName('7012001.pdf')).toBe(false);
   });
 
+  it('7019001 / 7020001 (育休取得者(終了)確認通知書) は NON_SPLITTABLE で対象外', () => {
+    expect(isShahoKoubunshoPdfFileName('7019001.pdf')).toBe(false);
+    expect(isShahoKoubunshoPdfFileName('7020001.pdf')).toBe(false);
+  });
+
+  it('7027001 (養育期間特例) は NON_SPLITTABLE で対象外（フォルダ名フォールバック経路で救済）', () => {
+    expect(isShahoKoubunshoPdfFileName('7027001.pdf')).toBe(false);
+  });
+
   it('未知の通知書IDは対象外', () => {
     expect(isShahoKoubunshoPdfFileName('7999999.pdf')).toBe(false);
   });
@@ -45,6 +54,7 @@ describe('isShahoKoubunshoPdfFileName — 社保公文書PDF判定', () => {
 
 describe('getNoticeTitleFromPdfFileName — 通知書名取得', () => {
   it.each([
+    ['7027001.pdf', '厚生年金保険養育期間標準報酬月額特例申出受理通知書'],
     ['7100001.pdf', '健康保険・厚生年金保険資格取得確認および標準報酬決定通知書'],
     ['7120002.pdf', '健康保険・厚生年金保険資格喪失確認通知書'],
     ['7130001.pdf', '健康保険・厚生年金保険被保険者標準報酬決定通知書'],
