@@ -213,17 +213,17 @@ export function extractFromSocialInsurance(
   // 適用年月を抽出（月額変更・算定基礎届で使用）
   // ルート → なければ被保険者ブロックの順に試す
   {
-    let applicableEraMatch = xmlContent.match(/<適用年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/適用年月_元号>/);
-    let applicableYearMatch = xmlContent.match(/<適用年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_年>/);
-    let applicableMonthMatch = xmlContent.match(/<適用年月_月>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_月>/);
+    let applicableEraMatch = xmlContent.match(/<(?:算定)?適用年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/(?:算定)?適用年月_元号>/);
+    let applicableYearMatch = xmlContent.match(/<(?:算定)?適用年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/(?:算定)?適用年月_年>/);
+    let applicableMonthMatch = xmlContent.match(/<(?:算定)?適用年月_月>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/(?:算定)?適用年月_月>/);
 
     if (!applicableEraMatch || !applicableYearMatch || !applicableMonthMatch) {
       const firstInsurerBlock = xmlContent.match(/<_被保険者>[\s\S]*?<\/_被保険者>/);
       if (firstInsurerBlock) {
         const block = firstInsurerBlock[0];
-        applicableEraMatch = applicableEraMatch || block.match(/<適用年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/適用年月_元号>/);
-        applicableYearMatch = applicableYearMatch || block.match(/<適用年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_年>/);
-        applicableMonthMatch = applicableMonthMatch || block.match(/<適用年月_月>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/適用年月_月>/);
+        applicableEraMatch = applicableEraMatch || block.match(/<(?:算定)?適用年月_元号>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/(?:算定)?適用年月_元号>/);
+        applicableYearMatch = applicableYearMatch || block.match(/<(?:算定)?適用年月_年>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/(?:算定)?適用年月_年>/);
+        applicableMonthMatch = applicableMonthMatch || block.match(/<(?:算定)?適用年月_月>(?:<!\[CDATA\[)?\s*(\d+)(?:\]\]>)?<\/(?:算定)?適用年月_月>/);
       }
     }
 

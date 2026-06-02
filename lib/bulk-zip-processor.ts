@@ -694,15 +694,35 @@ export function applyShahoFolderNameFallbacks(
  * [社保]算定基礎 フォルダの個別PDFに「令和{n}年度算定_」プレフィックスを付与
  *
  * 対象: 7130001 / 7200001 から生成される個別PDF（pdfStrategy='individual'経路）
- * 年度: XMLの<適用年月>から元号略号「R{n}」のnを使用（算定基礎届は適用年月=9月のため、年=年度）
- * 適用年月が抽出できないケースは元のファイル名のまま返す。
+ * 年度: XMLの<適用年月>（7200001は<算定適用年月>）から元号略号「R{n}」のnを使用
+ *       （算定基礎届は適用年月=9月のため、年=年度）
+ * フォルダ名が「算定基礎」ごと切り詰められた場合は文書内容で算定基礎を判定する
+ * （isSanteiKisoContext）。適用年月が抽出できないケースは元のファイル名のまま返す。
  */
+function isSanteiKisoContext(folderName: string, xmlContent: string): boolean {
+  // 1) フォルダ名に算定基礎（切り詰めで途中まで残った接頭辞も含む）が残っている
+  if (/\[社保\](?:算定基礎|算定基|算定|算)/.test(folderName)) return true;
+
+  // 2) フォルダ末尾が [社保] 直後で切り詰められ手続きが判別不能（…[社保]・・・ 等）。
+  //    行政システムのパス長切り詰めで「算定基礎」ごと欠落するケース。
+  //    フォルダ名から判別できないため、文書内容（定時決定の通知書）で確認する:
+  //      - N7130001 標準報酬決定通知書（定時決定＝算定基礎の結果）
+  //      - N7200001 70歳以上被用者で「算定適用年月」を持つ（算定基礎の結果）
+  //    資格取得 N7100001 等は対象外のままにするため、文書IDで厳密に絞る。
+  const truncatedShaho = /\[社保\](?:・・・|\.\.\.|…)/.test(folderName);
+  if (!truncatedShaho) return false;
+  if (/<N7130001[\s>]/.test(xmlContent)) return true;
+  if (/<N7200001[\s>]/.test(xmlContent) && /算定適用年月/.test(xmlContent)) return true;
+  return false;
+}
+
 function applyShahoSanteiKisoYearPrefix(
   fileName: string,
   folderName: string,
-  applicableDate: string | undefined
+  applicableDate: string | undefined,
+  xmlContent: string
 ): string {
-  if (!/\[社保\]算定基礎/.test(folderName)) return fileName;
+  if (!isSanteiKisoContext(folderName, xmlContent)) return fileName;
   if (!applicableDate) return fileName;
 
   const match = applicableDate.match(/^R(\d+)年/);
@@ -732,6 +752,11 @@ export async function processFolderDocuments(
   if (isApplicationCopy) {
     logIndent('Detected application copy folder (届出控)', 2, 'ℹ️');
   }
+
+  // 届出控フォルダ内で「申請書の写し本体（届書）」が複数ある場合に
+  // `届出控.pdf` 同士が衝突しないよう連番を振るためのカウンタ。
+  // kagami（送付状）は別名（`届出控_送付状.pdf`）にするのでここには数えない。
+  let appCopyFormIndex = 0;
 
   for (let docIndex = 0; docIndex < folder.documents.length; docIndex++) {
     const doc = folder.documents[docIndex];
@@ -807,7 +832,8 @@ export async function processFolderDocuments(
               const pdfFileName = applyShahoSanteiKisoYearPrefix(
                 baseFileName,
                 folder.folderName,
-                namingInfo.applicableDate
+                namingInfo.applicableDate,
+                xmlContent
               );
 
               pdfs.push({
@@ -842,10 +868,26 @@ export async function processFolderDocuments(
         }
       } else {
         // 連結PDF生成（月額変更、算定基礎届、賞与、その他、または単独の場合）
-        const pdfFileName = generateSafePdfFileName(
-          procedureInfo.type,
-          namingInfo
-        );
+        // 届出控フォルダは kagami（送付状）と申請書の写し本体（届書）が同梱され、
+        // どちらも generateSafePdfFileName では `届出控.pdf` になって衝突するため、
+        // ここで送付状/本体を区別し、本体が複数あるときは連番で重複を避ける。
+        let pdfFileName: string;
+        if (isApplicationCopy) {
+          if (doc.type === 'kagami') {
+            pdfFileName = `${APPLICATION_COPY_TITLE}_送付状.pdf`;
+          } else {
+            pdfFileName =
+              appCopyFormIndex === 0
+                ? `${APPLICATION_COPY_TITLE}.pdf`
+                : `${APPLICATION_COPY_TITLE}_${appCopyFormIndex + 1}.pdf`;
+            appCopyFormIndex++;
+          }
+        } else {
+          pdfFileName = generateSafePdfFileName(
+            procedureInfo.type,
+            namingInfo
+          );
+        }
 
         // XSLT変換
         const html = await applyXsltTransformation(xmlContent, optimizeXslForPdf(xslContent));
