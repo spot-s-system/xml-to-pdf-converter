@@ -9,6 +9,9 @@ import {
   isLegacyEraDatePrefixedPdf,
   isApplicationCopyFolder,
   applyShahoFolderNameFallbacks,
+  stripTrailingReceptionNumber,
+  compressFolderNameForBudget,
+  fitEntryNameToShellLimit,
 } from '@/lib/bulk-zip-processor';
 import type { NamingInfo } from '@/lib/xml-info-extractor';
 
@@ -443,5 +446,97 @@ describe('renamePdfIfNeeded — 統合リネームロジック', () => {
       // ルール4 のフォールバック条件にもマッチしない（[雇保] でないため）
       expect(renamePdfIfNeeded('既存ファイル.pdf', folder)).toBe('既存ファイル.pdf');
     });
+  });
+});
+
+describe('stripTrailingReceptionNumber — 末尾到達番号の除去', () => {
+  it('18桁の到達番号 + 省略記号を落とす', () => {
+    expect(
+      stripTrailingReceptionNumber(
+        '0003_株式会社ミツモア_3830278_朝倉 美穂_[雇保]資格取得_202605010954058363・・・'
+      )
+    ).toBe('0003_株式会社ミツモア_3830278_朝倉 美穂_[雇保]資格取得');
+  });
+
+  it('省略記号なしの12桁以上の到達番号も落とす', () => {
+    expect(
+      stripTrailingReceptionNumber('0001_社_山田_[雇保]資格取得_202605121617408273')
+    ).toBe('0001_社_山田_[雇保]資格取得');
+  });
+
+  it('OS切り詰めで桁数が減った到達番号（省略記号あり）も落とす', () => {
+    expect(
+      stripTrailingReceptionNumber('0007_株_東 鈴加_[社保]資格取得(単記)_2026・・・')
+    ).toBe('0007_株_東 鈴加_[社保]資格取得(単記)');
+  });
+
+  it('労保年度更新の `_公文書_2` 末尾（1桁・省略記号なし）は落とさない', () => {
+    const folder = '0011_社_[労保]年度更新(建設)_202507031133539941_公文書_2';
+    expect(stripTrailingReceptionNumber(folder)).toBe(folder);
+  });
+
+  it('手続きタグ末尾が `_[雇・・・` で切れたケース（数字なし）は落とさない', () => {
+    const folder = '0009_Yacht_大月 由佳子_[雇・・・';
+    expect(stripTrailingReceptionNumber(folder)).toBe(folder);
+  });
+});
+
+describe('compressFolderNameForBudget — 89字budgetへのフォルダ名圧縮', () => {
+  it('budget内なら無変更', () => {
+    const folder = '0003_株式会社ミツモア_3830278_朝倉 美穂_[雇保]資格取得';
+    expect(compressFolderNameForBudget(folder, 20)).toBe(folder);
+  });
+
+  it('到達番号を落とすだけで収まる場合は社名をフル保持する', () => {
+    // 朝倉 美穂 の回帰: maxFilenameLen=38（`朝倉 美穂様_…(被保険者用).pdf`）。
+    // 社名(株式会社ミツモア=8字)は短く、社名圧縮だけでは入らないが、
+    // 末尾到達番号を落とせば収まる。
+    const folder =
+      '0003_株式会社ミツモア_3830278_朝倉 美穂_[雇保]資格取得_202605010954058363・・・';
+    const compressed = compressFolderNameForBudget(folder, 38);
+    expect(compressed).toBe(
+      '0003_株式会社ミツモア_3830278_朝倉 美穂_[雇保]資格取得'
+    );
+    // 圧縮後フォルダ + `/` + 最長ファイル名 が 89 字以下
+    expect(compressed.length + 1 + 38).toBeLessThanOrEqual(89);
+  });
+
+  it('到達番号除去でも足りなければ社名末尾を切り詰める', () => {
+    const folder =
+      '0004_Tokyo Artisan Intelligence株式会社_3817608_青木 理沙_[雇保]資格取得_202605010954058363・・・';
+    const compressed = compressFolderNameForBudget(folder, 38);
+    expect(compressed.length + 1 + 38).toBeLessThanOrEqual(89);
+    // 社名以外（被保険者名・手続きタグ）は保持される
+    expect(compressed).toContain('_青木 理沙_[雇保]資格取得');
+  });
+});
+
+describe('回帰: 朝倉 美穂 雇保資格取得 — 氏名・帳票名フル保持', () => {
+  // ユーザー実データ由来の回帰（個人情報のため fixture ZIP は git 管理外）。
+  // バグ: 出力フォルダ名が末尾到達番号(18桁)で肥大し、`fitEntryNameToShellLimit` の
+  // 89字制限で被保険者名(朝倉 美穂→朝)と帳票名((被保険者用)→(被保))の両方が
+  // 切り詰められていた。到達番号を落として budget を確保することで両者をフル保持する。
+  const folderName =
+    '0003_株式会社ミツモア_3830278_朝倉 美穂_[雇保]資格取得_202605010954058363・・・';
+  const files = [
+    '朝倉 美穂様_雇用保険被保険者証、資格取得等確認通知書(被保険者用).pdf',
+    '朝倉 美穂様_雇用保険資格喪失届、資格取得等確認通知書(事業主用).pdf',
+  ];
+
+  it('全エントリパスが89字以下で、氏名・帳票名が一切切り詰められない', () => {
+    const maxFilenameLen = Math.max(...files.map((f) => f.length));
+    const compressedFolder = compressFolderNameForBudget(
+      folderName,
+      maxFilenameLen
+    );
+    const folderPrefix = `${compressedFolder}/`;
+
+    for (const file of files) {
+      const safe = fitEntryNameToShellLimit(folderPrefix, file);
+      const entryPath = `${folderPrefix}${safe}`;
+      expect(entryPath.length).toBeLessThanOrEqual(89);
+      // 切り詰めが起きていない = 元のファイル名と完全一致
+      expect(safe).toBe(file);
+    }
   });
 });
