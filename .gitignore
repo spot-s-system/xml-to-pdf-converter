@@ -45,3 +45,6 @@ sample/
 
 # zip files
 *.zip
+
+# Claude hook marker (local, do not commit)
+.claude/.integration-verified
