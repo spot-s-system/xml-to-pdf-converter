@@ -1314,40 +1314,76 @@ export async function createResultZip(
 const SHELL_ZIP_ENTRY_MAX_LEN = 89;
 
 /**
- * フォルダ名から **2 フィールド目（社名セグメント）** を必要分だけ末尾切り詰める。
+ * 入力 ZIP のフォルダ名末尾に付く **到達番号セグメント**（電子申請の受付番号）を
+ * 出力フォルダ名から落とす。
  *
- * 入力 ZIP のフォルダ名は概ね `{番号}_{社名}_{番号|被保険者ID}_{被保険者名}_[xxx]{手続き}_…`
- * の形をしている。社名が `Tokyo Artisan Intelligence株式会社` のように長いケースでは
- * **フォルダプレフィックス単体で 60 字超**となり、`fitEntryNameToShellLimit` の
- * 89 字制限と相まって、被保険者名や帳票名を強引に削るしかなくなる。
+ * フォルダ名は概ね `{番号}_{社名}_{被保険者ID}_{被保険者名}_[xxx]{手続き}_{到達番号}…`
+ * の形で、末尾の `_{到達番号}`（18 桁前後の数字。OS のパス長切り詰めで
+ * `202605010954058363・・・` のように途中で切れていることも多い）は **人間が出力 ZIP を
+ * 眺める上では完全にノイズ**で、20 字前後を占有してフォルダプレフィックスを肥大させる。
  *
- * 本関数は **出力 ZIP のフォルダ名のみ** を縮める：
- *  - フォルダ最長ファイル名 + 新フォルダ長 + 1(`/`) ≤ 89 を満たす最短の社名長を計算
- *  - 社名末尾を素直に切る（省略記号は付けない）
- *  - 1 字未満になる場合は元のフォルダ名で返す（諦め）
- *  - パターンが解析できない（先頭が数字_社名_ で始まらない）場合は元のフォルダ名
+ * 被保険者名・手続き種別の判別（[[extractInsurerNameFromFolderName]] 等）は
+ * **圧縮前の `folder.folderName`** に対して既に上流で実行済みなので、出力フォルダ名の
+ * 末尾到達番号を落としても判別ロジックには一切影響しない。
  *
- * フォルダ末尾はそのまま保持（手続きタグや末尾 `・・・` 等は入力 ZIP 由来の情報なので
- * 改変しない）。被保険者名・手続き種別の判別にも使われているため。
+ * マッチ条件（末尾に限定）:
+ *   - `_` + 12 桁以上の数字（省略記号有無は問わない）             … 例: `_202605010954058363`
+ *   - `_` + 任意桁の数字 + 省略記号(`・・・`/`...`/`…`)         … 例: `_2026・・・`（切り詰めで桁数が減ったケース）
+ * `_公文書_2` のような労保年度更新フォルダ末尾（数字 1 桁・省略記号なし）には
+ * マッチしないので影響を受けない。
  */
-function compressFolderNameForBudget(
+export function stripTrailingReceptionNumber(folderName: string): string {
+  return folderName.replace(/_(?:\d{12,}|\d+(?:・・・|\.\.\.|…))$/, '');
+}
+
+/**
+ * 出力 ZIP のフォルダ名を 89 字制限の budget に収める。
+ *
+ * 入力 ZIP のフォルダ名は概ね `{番号}_{社名}_{番号|被保険者ID}_{被保険者名}_[xxx]{手続き}_{到達番号}…`
+ * の形をしている。フォルダプレフィックスが長いと `fitEntryNameToShellLimit` の
+ * 89 字制限と相まって、被保険者名や帳票名を強引に削るしかなくなる
+ * （例: `朝倉 美穂様_…(被保険者用).pdf` → `朝様_…(被保` のように氏名も帳票名も欠ける）。
+ *
+ * 本関数は **出力 ZIP のフォルダ名のみ** を縮める（2 段階）：
+ *  1) 末尾の到達番号セグメントを落とす（[[stripTrailingReceptionNumber]]）。
+ *     これだけで budget に収まれば社名はフル保持できる。
+ *  2) それでも収まらなければ、**2 フィールド目（社名）** を必要分だけ末尾切り詰める。
+ *     - フォルダ最長ファイル名 + 新フォルダ長 + 1(`/`) ≤ 89 を満たす最短の社名長を計算
+ *     - 社名末尾を素直に切る（省略記号は付けない）
+ *     - 1 字未満になる場合はそのまま返す（諦め＝最後の砦 fitEntryNameToShellLimit に委ねる）
+ *     - パターンが解析できない（先頭が `数字_社名_` で始まらない）場合はそのまま返す
+ *
+ * 到達番号以外のフォルダ末尾（手続きタグや末尾 `・・・` 等）は改変しない。
+ */
+export function compressFolderNameForBudget(
   folderName: string,
   maxFilenameLen: number
 ): string {
+  const fits = (name: string): boolean =>
+    name.length + 1 + maxFilenameLen <= SHELL_ZIP_ENTRY_MAX_LEN; // +1 for trailing '/'
+
+  if (fits(folderName)) return folderName;
+
+  // 段階 1: 末尾の到達番号（受付番号）を落とす。出力フォルダ名のノイズで、
+  // これだけで収まれば社名・被保険者名・帳票名を一切削らずに済む。
+  const stripped = stripTrailingReceptionNumber(folderName);
+  if (fits(stripped)) return stripped;
+
+  // 段階 2: 到達番号を落としても収まらない → 社名（2 フィールド目）を末尾切り詰め。
   // 想定: `{seq}_{company}_{rest...}` で先頭 2 セグメントを切り出す。
   // 番号フィールドの後の社名がアンダースコアを含まない前提（=典型的な入力構造）。
-  const m = folderName.match(/^([^_]+)_([^_]+)_(.+)$/);
-  if (!m) return folderName;
+  const working = stripped;
+  const m = working.match(/^([^_]+)_([^_]+)_(.+)$/);
+  if (!m) return working;
 
   const [, seq, company, rest] = m;
-  const currentLen = folderName.length + 1; // +1 for trailing '/'
-  if (currentLen + maxFilenameLen <= SHELL_ZIP_ENTRY_MAX_LEN) return folderName;
+  const currentLen = working.length + 1; // +1 for trailing '/'
 
   // 必要削減量と新社名長を計算
   const needCut = currentLen + maxFilenameLen - SHELL_ZIP_ENTRY_MAX_LEN;
   const newCompanyLen = company.length - needCut;
-  if (newCompanyLen < 1) return folderName; // 社名 1 字まで削っても入らない → 諦めて素通し
-  if (newCompanyLen >= company.length) return folderName; // 元から十分短い
+  if (newCompanyLen < 1) return working; // 社名 1 字まで削っても入らない → 諦めて素通し
+  if (newCompanyLen >= company.length) return working; // 元から十分短い
 
   // 末尾空白で終わらないよう trim（`株式会社 ` で止まると見苦しい）
   let newCompany = company.slice(0, newCompanyLen);
@@ -1383,7 +1419,7 @@ function compressFolderNameForBudget(
  * `様` を含まないファイル（例: 固定名 `表紙.pdf` / `届出控.pdf` 等）は拡張子を
  * 保ったままベース名末尾から素直に切り詰める。
  */
-function fitEntryNameToShellLimit(
+export function fitEntryNameToShellLimit(
   folderPrefix: string,
   fileName: string
 ): string {
