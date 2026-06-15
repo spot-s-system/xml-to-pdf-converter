@@ -10,6 +10,7 @@ import {
   isApplicationCopyFolder,
   applyShahoFolderNameFallbacks,
   compressFolderNameForBudget,
+  fitEntryNameToShellLimit,
 } from '@/lib/bulk-zip-processor';
 import type { NamingInfo } from '@/lib/xml-info-extractor';
 
@@ -537,5 +538,35 @@ describe('compressFolderNameForBudget — ZIPエントリ89文字制限対応フ
     // 社名が圧縮されているはず
     expect(compressed).not.toContain('VeryLongCompanyNameExtended株式会社');
     expect(compressed.length + 1 + 40).toBeLessThanOrEqual(89);
+  });
+});
+
+describe('回帰: 朝倉 美穂 雇保資格取得 — 氏名・帳票名フル保持', () => {
+  // ユーザー実データ由来の回帰（個人情報のため fixture ZIP は git 管理外）。
+  // バグ: 出力フォルダ名が末尾到達番号(18桁)で肥大し、`fitEntryNameToShellLimit` の
+  // 89字制限で被保険者名(朝倉 美穂→朝)と帳票名((被保険者用)→(被保))の両方が
+  // 切り詰められていた。到達番号を落として budget を確保することで両者をフル保持する。
+  const folderName =
+    '0003_株式会社ミツモア_3830278_朝倉 美穂_[雇保]資格取得_202605010954058363・・・';
+  const files = [
+    '朝倉 美穂様_雇用保険被保険者証、資格取得等確認通知書(被保険者用).pdf',
+    '朝倉 美穂様_雇用保険資格喪失届、資格取得等確認通知書(事業主用).pdf',
+  ];
+
+  it('全エントリパスが89字以下で、氏名・帳票名が一切切り詰められない', () => {
+    const maxFilenameLen = Math.max(...files.map((f) => f.length));
+    const compressedFolder = compressFolderNameForBudget(
+      folderName,
+      maxFilenameLen
+    );
+    const folderPrefix = `${compressedFolder}/`;
+
+    for (const file of files) {
+      const safe = fitEntryNameToShellLimit(folderPrefix, file);
+      const entryPath = `${folderPrefix}${safe}`;
+      expect(entryPath.length).toBeLessThanOrEqual(89);
+      // 切り詰めが起きていない = 元のファイル名と完全一致
+      expect(safe).toBe(file);
+    }
   });
 });

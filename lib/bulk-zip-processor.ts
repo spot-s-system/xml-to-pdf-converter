@@ -1421,7 +1421,7 @@ export function compressFolderNameForBudget(
  * `様` を含まないファイル（例: 固定名 `表紙.pdf` / `届出控.pdf` 等）は拡張子を
  * 保ったままベース名末尾から素直に切り詰める。
  */
-function fitEntryNameToShellLimit(
+export function fitEntryNameToShellLimit(
   folderPrefix: string,
   fileName: string
 ): string {

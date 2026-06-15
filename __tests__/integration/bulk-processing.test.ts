@@ -282,7 +282,10 @@ describe('integration: 長文字数_取得月変.zip (89文字超過→被保険
       // 新方針: 通知書名（帳票名）はフル保持し、文字数超過時は **被保険者名側**を
       // 切り詰める。極端ケース（被保険者名 1 文字でも超過）のみ通知書名末尾も削る。
       // `表紙.pdf` / `通知書.pdf` などの kagami/フォールバック名は対象外。
-      const samaPdfs = pdfBasenames.filter((n) => n.includes('様'));
+      // 対象は被保険者リネーム後のファイル（`様[他N名]_` タグを持つもの）のみ。
+      // `事業主の皆様へ（…）.pdf` のような同梱の案内 PDF は氏名と無関係に「様」を
+      // 含むため除外する。
+      const samaPdfs = pdfBasenames.filter((n) => /様(?:他\d+名)?_/.test(n));
       expect(samaPdfs.length).toBeGreaterThan(0);
       const malformed = samaPdfs.filter((n) => !/様(他\d+名)?_.+\.pdf$/.test(n));
       expect(
@@ -373,16 +376,17 @@ describe('integration: 育児_社保雇保混在.zip', async () => {
   );
 
   it.skipIf(!has)(
-    '[社保]育児休業等終了届フォルダの 7020001.pdf は 育児休業等取得者確認通知書 タイトルで {名前}様_ にリネームされる',
+    '[社保]育児休業等終了届フォルダの 7020001.pdf は 育児休業等取得者終了確認通知書 タイトルで {名前}様_ にリネームされる',
     async () => {
-      // SHAHO_PER_PERSON_RENAME_MAP は親 ZIP 側の `[社保]育児・・・` 切り詰めに
-      // 耐えるよう `[社保]育児` プレフィックスまで広げてある。副作用として
-      // `[社保]育児休業等終了届` も同じ「育児休業等取得者確認通知書」タイトルで
-      // {名前}様_xxx.pdf にリネームされる（誤マッチだが現状ユーザー指示で許容）。
-      // 終了届と申出書を厳密に区別したい場合は SHAHO_TITLE_MAP のコメント参照。
+      // このフィクスチャのフォルダ名は `..._[社保]育児休業等終了届_{到達番号}` で、
+      // `_公文書_` を含まない。そのため SHAHO_PER_PERSON_RENAME_MAP
+      // （`_公文書_` ゲート付き・育休と終了届を同一タイトルに丸める誤マッチ許容マップ）
+      // は発火せず、processOtherFile が SHAHO_NOTICE_TITLES['7020001'] =
+      // 「健康保険・厚生年金保険育児休業等取得者終了確認通知書」を直接使う。
+      // 終了届に対しては「終了確認通知書」が正しいタイトルなので、これが期待値。
       const { entries } = await runPipeline(fixtureName);
       expect(entries.some((e) =>
-        /\[社保\]育児休業等終了届.+様_健康保険・厚生年金保険育児休業等取得者確認通知書\.pdf$/.test(e)
+        /\[社保\]育児休業等終了届.*様_健康保険・厚生年金保険育児休業等取得者終了確認通知書\.pdf$/.test(e)
       )).toBe(true);
     },
     600_000
@@ -439,8 +443,11 @@ describe('integration: 展開エラー_氏名トリミング回帰.zip', async (
       // 被保険者名は budget 都合で末尾が切り詰められる可能性があるため、
       // ファイル名形式（`<name>様[他N名]_<title>.pdf`）の構造のみ検証する。
       // 完全に消えた「様_…」始まりは許さない（最低 1 文字は名前を残す保証）。
+      // 対象は被保険者リネーム後のファイル（`様[他N名]_` タグを持つもの）のみ。
+      // `事業主の皆様へ（…）.pdf` のような同梱の案内 PDF は氏名と無関係に「様」を
+      // 含むため除外する（これらは passthrough で帳票名形式の検証対象外）。
       const pdfBasenames = pdfs.map((p) => p.split('/').pop() ?? '');
-      const samaPdfs = pdfBasenames.filter((n) => n.includes('様'));
+      const samaPdfs = pdfBasenames.filter((n) => /様(?:他\d+名)?_/.test(n));
       expect(samaPdfs.some((n) => n.startsWith('様_'))).toBe(false);
       const malformed = samaPdfs.filter((n) => !/様(他\d+名)?_.+\.pdf$/.test(n));
       expect(
@@ -471,6 +478,65 @@ describe('integration: 展開エラー_氏名トリミング回帰.zip', async (
       expect(
         unrenamedYakuho,
         `雇保PDFがリネームされず原形のまま:\n${unrenamedYakuho.join('\n')}`
+      ).toEqual([]);
+
+      // eslint-disable-next-line no-console
+      console.log(`[dump] PDFs written to: ${outputDir}`);
+    },
+    600_000
+  );
+});
+
+describe('integration: 雇保資格取得_氏名帳票名フル保持.zip', async () => {
+  // ユーザー実データ由来の回帰（朝倉 美穂様 / 株式会社ミツモア）。
+  // バグ: 出力フォルダ名が末尾の到達番号(18桁) `202605010954058363・・・` を保持して
+  // 89字制限を超過し、被保険者名(朝倉 美穂→朝)と帳票名((被保険者用)→(被保))の
+  // 両方が切り詰められていた。
+  // 修正: compressFolderNameForBudget が末尾到達番号を落として budget を確保し、
+  // 氏名・帳票名ともフル保持する（stripTrailingReceptionNumber）。
+  const fixtureName = '雇保資格取得_氏名帳票名フル保持.zip';
+  const has = await fixtureExists(fixtureName);
+
+  it.skipIf(!has)(
+    '被保険者名・帳票名が切り詰められず、全エントリ89字以下',
+    async () => {
+      const { entries, pdfs, outputDir } = await runPipeline(fixtureName, {
+        dumpLabel: '雇保資格取得_氏名帳票名フル保持',
+      });
+
+      // (1) 全エントリパスが89字以下
+      const overLimit = entries.filter((e) => e.length > 89);
+      expect(
+        overLimit,
+        `89文字超のエントリが残っている:\n${overLimit
+          .map((e) => `  ${e.length}: ${e}`)
+          .join('\n')}`
+      ).toEqual([]);
+
+      // (2) 雇保資格取得フォルダ（0003）の2つのPDFが氏名・帳票名フル保持
+      const base = pdfs.map((p) => p.split('/').pop() ?? '');
+      expect(
+        base.some(
+          (n) =>
+            n ===
+            '朝倉 美穂様_雇用保険被保険者証、資格取得等確認通知書(被保険者用).pdf'
+        ),
+        `(被保険者用) のフル名PDFが無い:\n${base.join('\n')}`
+      ).toBe(true);
+      expect(
+        base.some(
+          (n) =>
+            n ===
+            '朝倉 美穂様_雇用保険資格喪失届、資格取得等確認通知書(事業主用).pdf'
+        ),
+        `(事業主用) のフル名PDFが無い:\n${base.join('\n')}`
+      ).toBe(true);
+
+      // (3) 氏名が1文字に潰れた `朝様_…` のような切り詰めが残っていないこと
+      const truncatedName = base.filter((n) => /^朝様_/.test(n));
+      expect(
+        truncatedName,
+        `氏名が切り詰められたPDF:\n${truncatedName.join('\n')}`
       ).toEqual([]);
 
       // eslint-disable-next-line no-console
