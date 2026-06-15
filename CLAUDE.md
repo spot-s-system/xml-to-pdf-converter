@@ -56,11 +56,17 @@ For ZIP files containing multiple folders, the application supports bulk process
 - Original XML/XSL files and other files (PDFs, TXTs) are preserved in the output ZIP
 
 #### PDF Renaming Feature
-For employment insurance cases with "離職票交付あり" (separation certificate issuance) in the folder name:
-- Existing PDF files starting with numbers are automatically renamed
-- The numeric prefix is replaced with the insurer's name extracted from the folder name
-- Example: `2501793096_雇用保険被保険者資格喪失確認通知書.pdf` → `川村夏菜_雇用保険被保険者資格喪失確認通知書.pdf`
-- This feature only affects existing PDFs in `otherFiles`, not newly generated PDFs
+For the following employment insurance (`[雇保]`) folder types, existing PDF files starting with numbers are automatically renamed:
+- `[雇保]資格取得` — 資格取得
+- `[雇保]資格喪失` (including 離職票交付あり) — 資格喪失
+- `[雇保]育児休業出生後休業給付` / `[雇保]育児時短就業給付` / `[雇保]育児休業出生時休業給付` — 育児系
+- `[雇保]転勤` — 転勤届
+
+Renaming rule: the numeric prefix (`\d+(-\d+)?_`) is replaced with `{被保険者名}様_`.
+- Example (資格喪失): `2501793096_雇用保険被保険者資格喪失確認通知書.pdf` → `川村 夏菜様_雇用保険被保険者資格喪失確認通知書.pdf`
+- Example (転勤): `202606111547489913-0001_転勤届受理通知書（転勤前事業所通知用）.pdf` → `KAENTHAO TAWAN様_転勤届受理通知書（転勤前事業所通知用）.pdf`
+
+This feature only affects existing PDFs in `otherFiles`, not newly generated PDFs.
 
 ### Document Types Supported
 

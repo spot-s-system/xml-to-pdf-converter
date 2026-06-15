@@ -935,10 +935,11 @@ export async function processFolderDocuments(
  */
 export function extractInsurerNameFromFolderName(folderName: string): string | null {
   // 手続き種別はパス長切り詰めで途中で切れている可能性があるため、頭文字レベル
-  // （資格 / 育）のプレフィックスでマッチさせる。
+  // （資格 / 育 / 転勤）のプレフィックスでマッチさせる。
   //   資格 → 資格取得 / 資格喪失
   //   育   → 育児休業出生後休業給付 / 育児時短就業給付 / 育児休業出生時休業給付
   //          ＋ 切り詰められた「育」「育児休業」等
+  //   転勤 → 転勤届（転勤前・転勤後事業所どちらの通知用も対象）
   // 高年齢雇用継続給付・介護休業給付金・教育訓練給付金などの他系統には誤マッチしない。
   //
   // さらに、会社名が極端に長いと `_[雇保]xxx` の `]` も含めて切り詰められ、
@@ -948,7 +949,7 @@ export function extractInsurerNameFromFolderName(folderName: string): string | n
   // （`_[雇` のみで判断するのは「教育訓練給付金」等の対象外手続きまで巻き込む
   //   可能性があるが、`・・・` で終端＝OS のパス長切り詰めが発生したケースに
   //   限定すれば実害は少ない）
-  const isYakuhoTarget = /\[雇保\](?:資格|育)/.test(folderName);
+  const isYakuhoTarget = /\[雇保\](?:資格|育|転勤)/.test(folderName);
   const isTruncatedYakuho = /_\[雇・・・\/?$/.test(folderName);
 
   if (!isYakuhoTarget && !isTruncatedYakuho) return null;

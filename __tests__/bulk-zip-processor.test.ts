@@ -48,6 +48,26 @@ describe('extractInsurerNameFromFolderName — [雇保] フォルダから被保
     expect(extractInsurerNameFromFolderName(folder)).toBe('大月 由佳子');
   });
 
+  it('[雇保]転勤 — ラテン文字氏名でも抽出できる（実ZIPケース）', () => {
+    // 0001_株式会社ヘキサケミカル_3028227_KAENTHAO TAWAN_[雇保]転勤_20260611154748・・・
+    const folder =
+      '0001_株式会社ヘキサケミカル_3028227_KAENTHAO TAWAN_[雇保]転勤_20260611154748・・・';
+    expect(extractInsurerNameFromFolderName(folder)).toBe('KAENTHAO TAWAN');
+  });
+
+  it('[雇保]転勤 — 数字始まりPDFが被保険者名様_xxxx にリネームされる', () => {
+    const folder =
+      '0001_株式会社ヘキサケミカル_3028227_KAENTHAO TAWAN_[雇保]転勤_20260611154748・・・';
+    expect(renamePdfIfNeeded(
+      '202606111547489913-0001_転勤届受理通知書（転勤前事業所通知用）.pdf',
+      folder,
+    )).toBe('KAENTHAO TAWAN様_転勤届受理通知書（転勤前事業所通知用）.pdf');
+    expect(renamePdfIfNeeded(
+      '202606111547489913-0001_雇用保険資格喪失届、資格取得等確認通知書(事業主用).pdf',
+      folder,
+    )).toBe('KAENTHAO TAWAN様_雇用保険資格喪失届、資格取得等確認通知書(事業主用).pdf');
+  });
+
   it('他系統（高年齢雇用継続給付・介護休業給付金など）は誤マッチしない', () => {
     const folder = '0010_株式会社C_山田太郎_[雇保]高年齢雇用継続給付_公文書_1';
     expect(extractInsurerNameFromFolderName(folder)).toBeNull();
