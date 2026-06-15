@@ -500,6 +500,22 @@ describe('compressFolderNameForBudget — ZIPエントリ89文字制限対応フ
     expect(compressed.length + 1 + 20).toBeLessThanOrEqual(89);
   });
 
+  it('パス長切り詰めで到達番号が短くなったフォルダ（_2026061・・・）も日付サフィックス削除する（転勤ZIPバグケース）', () => {
+    // 実ケース: 0002_株式会社ヘキサケミカル_3028220_PHUMPHOTHONG METHASIT_[雇保]転勤_2026061・・・
+    // `_2026061・・・` は 7 桁（14 桁未満）のため旧 `_\d{14,}` ではマッチしなかった
+    const folder =
+      '0002_株式会社ヘキサケミカル_3028220_PHUMPHOTHONG METHASIT_[雇保]転勤_2026061・・・';
+    // 最長ファイル: PHUMPHOTHONG METHASIT様_雇用保険資格喪失届、資格取得等確認通知書(事業主用).pdf = 53 文字
+    const maxFilename = 53;
+    const compressed = compressFolderNameForBudget(folder, maxFilename);
+    // 日付サフィックスが削除されること
+    expect(compressed).not.toContain('2026061');
+    // 被保険者番号 3028220 も Step 2b で削除されること
+    expect(compressed).not.toContain('3028220');
+    // 合計が89以下であること（fitEntryNameToShellLimit が帳票名フル保持で被保険者名を必要最小限にカットできる）
+    expect(compressed.length + 1 + maxFilename).toBeLessThanOrEqual(89);
+  });
+
   it('Step 3: 到達番号削除後もまだ足りない場合は社名圧縮も組み合わせる', () => {
     // フォルダ名が到達番号削除後も長い場合
     const veryLongFolder =

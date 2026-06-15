@@ -1355,9 +1355,11 @@ export function compressFolderNameForBudget(
     return `${seq}_${newCompany}_${rest}`;
   }
 
-  // Step 2: 社名圧縮では不足 → 末尾の到達番号サフィックス `_\d{14,}.*` を削除する。
-  // 到達番号以降（`_公文書_1` 等）は出力 ZIP フォルダ名として不要。
-  const withoutDateSuffix = folderName.replace(/_\d{14,}.*$/, '');
+  // Step 2: 社名圧縮では不足 → 末尾の到達番号サフィックスを削除する。
+  // 電子申請の到達番号は常に 202X... で始まる年月日時刻形式（例: 202605071153108363）。
+  // OS のパス長切り詰めで `_2026061・・・` のように途中で切れているケースも捕捉するため
+  // `_\d{14,}` ではなく `_202\d{4,}` で 7 文字以上（202 + 4 桁以上）にマッチさせる。
+  const withoutDateSuffix = folderName.replace(/_202\d{4,}.*$/, '');
   if (withoutDateSuffix === folderName) {
     // 到達番号サフィックスが無いフォルダ → 諦めて素通し
     return folderName;
@@ -1368,13 +1370,24 @@ export function compressFolderNameForBudget(
     return withoutDateSuffix;
   }
 
-  // Step 3: 到達番号削除後もまだ足りない → さらに社名圧縮を組み合わせる
-  const m2 = withoutDateSuffix.match(/^([^_]+)_([^_]+)_(.+)$/);
-  if (!m2) return withoutDateSuffix;
+  // Step 2b: 到達番号削除後もまだ足りない → 被保険者番号フィールド（純粋な数字 4〜9 桁）も削除する。
+  // フォルダ名の 3rd フィールドが会社コード・被保険者番号のような場合、出力 ZIP フォルダ名の
+  // 識別性には不要。`_3028220_P` のように次フィールドが非数字・非アンダースコアで始まる場合のみ対象。
+  const withoutEmpId = withoutDateSuffix.replace(/_\d{4,9}_(?=[^_\d])/, '_');
+  const newLen2b = withoutEmpId.length + 1;
+  if (newLen2b + maxFilenameLen <= SHELL_ZIP_ENTRY_MAX_LEN) {
+    return withoutEmpId;
+  }
+
+  // Step 3: 上記削除後もまだ足りない → さらに社名圧縮を組み合わせる
+  const baseForStep3 = withoutEmpId !== withoutDateSuffix ? withoutEmpId : withoutDateSuffix;
+  const baseLen3 = baseForStep3.length + 1;
+  const m2 = baseForStep3.match(/^([^_]+)_([^_]+)_(.+)$/);
+  if (!m2) return baseForStep3;
   const [, seq2, company2, rest2] = m2;
-  const needCut2 = newLen + maxFilenameLen - SHELL_ZIP_ENTRY_MAX_LEN;
+  const needCut2 = baseLen3 + maxFilenameLen - SHELL_ZIP_ENTRY_MAX_LEN;
   const newCompanyLen2 = company2.length - needCut2;
-  if (newCompanyLen2 < 1) return withoutDateSuffix;
+  if (newCompanyLen2 < 1) return baseForStep3;
   let newCompany2 = company2.slice(0, newCompanyLen2);
   while (newCompany2.length > 1 && /[ 　]$/.test(newCompany2)) {
     newCompany2 = newCompany2.slice(0, -1);
