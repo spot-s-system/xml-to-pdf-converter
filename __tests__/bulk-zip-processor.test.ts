@@ -9,6 +9,7 @@ import {
   isLegacyEraDatePrefixedPdf,
   isApplicationCopyFolder,
   applyShahoFolderNameFallbacks,
+  compressFolderNameForBudget,
 } from '@/lib/bulk-zip-processor';
 import type { NamingInfo } from '@/lib/xml-info-extractor';
 
@@ -443,5 +444,62 @@ describe('renamePdfIfNeeded — 統合リネームロジック', () => {
       // ルール4 のフォールバック条件にもマッチしない（[雇保] でないため）
       expect(renamePdfIfNeeded('既存ファイル.pdf', folder)).toBe('既存ファイル.pdf');
     });
+  });
+});
+
+describe('compressFolderNameForBudget — ZIPエントリ89文字制限対応フォルダ名圧縮', () => {
+  // 実ケース: 0001_株式会社ミツモア_3830290_佐藤 匠_[雇保]資格取得_202605071153108363_公文書_1
+  // folderPrefix = 61+1=62文字、ファイル名36文字 → 合計98文字 > 89文字
+  // 社名「株式会社ミツモア」は8文字で必要削減量10文字を下回るため社名圧縮だけでは解決不能
+  // → Step 2: 到達番号サフィックス `_202605071153108363_公文書_1` を削除して解決する
+  const REAL_CASE_FOLDER =
+    '0001_株式会社ミツモア_3830290_佐藤 匠_[雇保]資格取得_202605071153108363_公文書_1';
+  // リネーム後の最長ファイル名: 佐藤 匠様_雇用保険被保険者証、資格取得等確認通知書(被保険者用).pdf = 37文字
+  const REAL_CASE_MAX_FILENAME = 37;
+
+  it('到達番号サフィックスを削除して89文字制限内に収める（実バグ再現ケース）', () => {
+    const compressed = compressFolderNameForBudget(REAL_CASE_FOLDER, REAL_CASE_MAX_FILENAME);
+    // 到達番号以降が削除されていること
+    expect(compressed).toBe('0001_株式会社ミツモア_3830290_佐藤 匠_[雇保]資格取得');
+    // 圧縮後フォルダ prefix + 最長ファイル名 ≤ 89 であること
+    expect(compressed.length + 1 + REAL_CASE_MAX_FILENAME).toBeLessThanOrEqual(89);
+  });
+
+  it('89文字制限内に収まっている場合はそのまま返す', () => {
+    const shortFolder = '0001_株式会社A_田中太郎_[雇保]資格取得';
+    expect(compressFolderNameForBudget(shortFolder, 40)).toBe(shortFolder);
+  });
+
+  it('社名圧縮だけで解決できる場合は到達番号を削除しない', () => {
+    // 長い社名: Tokyo Artisan Intelligence株式会社 (28文字)
+    const longCompanyFolder =
+      '0001_Tokyo Artisan Intelligence株式会社_3830290_佐藤匠_[雇保]資格取得_202605071153108363_公文書_1';
+    const compressed = compressFolderNameForBudget(longCompanyFolder, 20);
+    // 社名が圧縮されるが到達番号サフィックスは残る（社名圧縮で足りた場合）
+    expect(compressed).toContain('202605071153108363');
+    expect(compressed.length + 1 + 20).toBeLessThanOrEqual(89);
+  });
+
+  it('Step 3: 到達番号削除後もまだ足りない場合は社名圧縮も組み合わせる', () => {
+    // フォルダ名が到達番号削除後も長い場合
+    const veryLongFolder =
+      '0001_VeryLongCompanyNameThatIsQuiteExtensive株式会社_0000000_被保険者名_[雇保]資格取得_202605071153108363_公文書_1';
+    const maxFilename = 40;
+    const compressed = compressFolderNameForBudget(veryLongFolder, maxFilename);
+    // 到達番号は削除されているはず
+    expect(compressed).not.toContain('202605071153108363');
+    // 合計が89以下であるか、あるいは解決不能で到達番号削除版が返っている
+    const total = compressed.length + 1 + maxFilename;
+    expect(total).toBeLessThanOrEqual(89);
+  });
+
+  it('到達番号サフィックスが無いフォルダは社名圧縮で対応する', () => {
+    // 到達番号なし・社名が長いケース
+    const noDateFolder =
+      '0001_VeryLongCompanyNameExtended株式会社_山田太郎_[雇保]資格取得_公文書_1';
+    const compressed = compressFolderNameForBudget(noDateFolder, 40);
+    // 社名が圧縮されているはず
+    expect(compressed).not.toContain('VeryLongCompanyNameExtended株式会社');
+    expect(compressed.length + 1 + 40).toBeLessThanOrEqual(89);
   });
 });

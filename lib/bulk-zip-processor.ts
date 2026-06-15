@@ -1315,22 +1315,21 @@ const SHELL_ZIP_ENTRY_MAX_LEN = 89;
 
 /**
  * フォルダ名から **2 フィールド目（社名セグメント）** を必要分だけ末尾切り詰める。
+ * 社名圧縮だけでは足りない場合、末尾の到達番号サフィックス (`_\d{14,}…`) も削除する。
  *
  * 入力 ZIP のフォルダ名は概ね `{番号}_{社名}_{番号|被保険者ID}_{被保険者名}_[xxx]{手続き}_…`
- * の形をしている。社名が `Tokyo Artisan Intelligence株式会社` のように長いケースでは
- * **フォルダプレフィックス単体で 60 字超**となり、`fitEntryNameToShellLimit` の
- * 89 字制限と相まって、被保険者名や帳票名を強引に削るしかなくなる。
+ * の形をしている。社名が長い場合や末尾に `_202605071153108363_公文書_1` のような
+ * 長い到達番号サフィックスが付く場合、**フォルダプレフィックス単体で 60 字超**となり、
+ * `fitEntryNameToShellLimit` の 89 字制限と相まって帳票名が切り詰められる。
  *
- * 本関数は **出力 ZIP のフォルダ名のみ** を縮める：
- *  - フォルダ最長ファイル名 + 新フォルダ長 + 1(`/`) ≤ 89 を満たす最短の社名長を計算
- *  - 社名末尾を素直に切る（省略記号は付けない）
- *  - 1 字未満になる場合は元のフォルダ名で返す（諦め）
- *  - パターンが解析できない（先頭が数字_社名_ で始まらない）場合は元のフォルダ名
- *
- * フォルダ末尾はそのまま保持（手続きタグや末尾 `・・・` 等は入力 ZIP 由来の情報なので
- * 改変しない）。被保険者名・手続き種別の判別にも使われているため。
+ * 本関数は **出力 ZIP のフォルダ名のみ** を縮める（被保険者名・手続き種別の判別ロジックは
+ * 常に呼び出し元が保持する元の folderName を参照するため安全）：
+ *  Step 1: 社名圧縮のみで解決できる場合 → 社名末尾を切る
+ *  Step 2: 社名圧縮が足りない → 末尾の到達番号サフィックス `_\d{14,}.*$` を削除
+ *  Step 3: それでも足りない → 到達番号削除 + 社名圧縮を組み合わせる
+ *  Step 4: それでも無理なら元のフォルダ名で返す（fitEntryNameToShellLimit に委ねる）
  */
-function compressFolderNameForBudget(
+export function compressFolderNameForBudget(
   folderName: string,
   maxFilenameLen: number
 ): string {
@@ -1343,18 +1342,43 @@ function compressFolderNameForBudget(
   const currentLen = folderName.length + 1; // +1 for trailing '/'
   if (currentLen + maxFilenameLen <= SHELL_ZIP_ENTRY_MAX_LEN) return folderName;
 
-  // 必要削減量と新社名長を計算
+  // Step 1: 社名圧縮のみで解決できるか試みる
   const needCut = currentLen + maxFilenameLen - SHELL_ZIP_ENTRY_MAX_LEN;
   const newCompanyLen = company.length - needCut;
-  if (newCompanyLen < 1) return folderName; // 社名 1 字まで削っても入らない → 諦めて素通し
-  if (newCompanyLen >= company.length) return folderName; // 元から十分短い
-
-  // 末尾空白で終わらないよう trim（`株式会社 ` で止まると見苦しい）
-  let newCompany = company.slice(0, newCompanyLen);
-  while (newCompany.length > 1 && /[ 　]$/.test(newCompany)) {
-    newCompany = newCompany.slice(0, -1);
+  if (newCompanyLen >= 1 && newCompanyLen < company.length) {
+    let newCompany = company.slice(0, newCompanyLen);
+    // 末尾空白で終わらないよう trim（`株式会社 ` で止まると見苦しい）
+    while (newCompany.length > 1 && /[ 　]$/.test(newCompany)) {
+      newCompany = newCompany.slice(0, -1);
+    }
+    return `${seq}_${newCompany}_${rest}`;
   }
-  return `${seq}_${newCompany}_${rest}`;
+
+  // Step 2: 社名圧縮では不足 → 末尾の到達番号サフィックス `_\d{14,}.*` を削除する。
+  // 到達番号以降（`_公文書_1` 等）は出力 ZIP フォルダ名として不要。
+  const withoutDateSuffix = folderName.replace(/_\d{14,}.*$/, '');
+  if (withoutDateSuffix === folderName) {
+    // 到達番号サフィックスが無いフォルダ → 諦めて素通し
+    return folderName;
+  }
+
+  const newLen = withoutDateSuffix.length + 1;
+  if (newLen + maxFilenameLen <= SHELL_ZIP_ENTRY_MAX_LEN) {
+    return withoutDateSuffix;
+  }
+
+  // Step 3: 到達番号削除後もまだ足りない → さらに社名圧縮を組み合わせる
+  const m2 = withoutDateSuffix.match(/^([^_]+)_([^_]+)_(.+)$/);
+  if (!m2) return withoutDateSuffix;
+  const [, seq2, company2, rest2] = m2;
+  const needCut2 = newLen + maxFilenameLen - SHELL_ZIP_ENTRY_MAX_LEN;
+  const newCompanyLen2 = company2.length - needCut2;
+  if (newCompanyLen2 < 1) return withoutDateSuffix;
+  let newCompany2 = company2.slice(0, newCompanyLen2);
+  while (newCompany2.length > 1 && /[ 　]$/.test(newCompany2)) {
+    newCompany2 = newCompany2.slice(0, -1);
+  }
+  return `${seq2}_${newCompany2}_${rest2}`;
 }
 
 /**
