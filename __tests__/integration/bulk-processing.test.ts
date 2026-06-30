@@ -138,24 +138,29 @@ describe('integration: 月額変更_70歳以上含む.zip', async () => {
   const has = await fixtureExists(fixtureName);
 
   it.skipIf(!has)(
-    '7140001 (月額変更) と 7210001 (70歳以上月額変更) が複数名統合PDFとして生成される',
+    '7140001 (月額変更) と 7210001 (70歳以上月額変更) が被保険者ごとの個別PDF(A)として生成される',
     async () => {
       const { pdfs, entries } = await runPipeline(fixtureName);
 
-      // 表紙 + 7140001 + 7210001 → 3つの生成PDF
+      // 月額変更はA個別化されたため、表紙 + 7140001(2名) + 7210001(2名) → 5つ以上の生成PDF
       // (kagami は到達番号XML 202510171622459734.xml から生成)
-      expect(pdfs.length).toBeGreaterThanOrEqual(3);
+      expect(pdfs.length).toBeGreaterThanOrEqual(5);
 
-      // 7140001: 山下 尚利様他1名_…改定通知書
-      expect(pdfs.some((p) =>
-        /^令和7年11月改定_.+様他1名_健康保険・厚生年金保険被保険者標準報酬改定通知書\.pdf$/.test(p)
-      )).toBe(true);
+      // 7140001: 被保険者ごとに「令和7年11月改定_{名前}様_…改定通知書.pdf」
+      // (「様他N名」の連結形式ではなく、様の直後が「_」である個別形式)
+      const kohen7140001 = pdfs.filter((p) =>
+        /^令和7年11月改定_.+様_健康保険・厚生年金保険被保険者標準報酬改定通知書\.pdf$/.test(p)
+      );
+      expect(kohen7140001.length).toBeGreaterThanOrEqual(2);
 
-      // 7210001: 70歳以上版（convertEraCode のフルテキスト元号サポートで
-      // 7140001 と同じ "令和n年m月改定_…" 形式に統一されている）
-      expect(pdfs.some((p) =>
-        /^令和7年11月改定_.+様他1名_厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ\.pdf$/.test(p)
-      )).toBe(true);
+      // 7210001: 70歳以上版も被保険者ごとに個別化
+      const kohen7210001 = pdfs.filter((p) =>
+        /^令和7年11月改定_.+様_厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ\.pdf$/.test(p)
+      );
+      expect(kohen7210001.length).toBeGreaterThanOrEqual(2);
+
+      // 連結形式（様他N名）が残っていないこと
+      expect(pdfs.some((p) => /様他\d+名_/.test(p))).toBe(false);
 
       // 元のXML/XSLも結果ZIPに残ること（公文書アーカイブの維持）
       expect(entries.some((e) => e.endsWith('7140001.xml'))).toBe(true);

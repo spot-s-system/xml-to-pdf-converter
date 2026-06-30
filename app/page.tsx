@@ -395,12 +395,28 @@ export default function Home() {
           <p className="text-xs leading-relaxed">
             一部社名や被保険者名（従業員番号含む）が長い場合、Windows エクスプローラの ZIP エントリパス長制限（89文字）に収めるため、
             出力ZIPの<strong>フォルダ名の社名部分のみを末尾から必要分だけ切り詰めます</strong>。
-            被保険者名・帳票名（通知書名）は本人特定・書類識別の核となるため、フル保持します。
+            被保険者名・帳票名（通知書名）は本人特定・書類識別の核となるため、原則フル保持します。
           </p>
           <p className="text-xs leading-relaxed opacity-90">
             例: <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">0001_サンプル長社名インターナショナル株式会社_0000000_山田 太郎_[雇保]資格取得_…</code>
             {' → '}
             <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">0001_サンプル長社名イン_0000000_山田 太郎_[雇保]資格取得_…</code>
+          </p>
+          <p className="font-semibold flex items-center gap-2 pt-1">
+            <span aria-hidden>⚠️</span>
+            日付プレフィックスが省略される場合があります
+          </p>
+          <p className="text-xs leading-relaxed">
+            算定基礎届・月額変更・賞与支払の生成PDFには <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">令和{'{n}'}年度算定_</code> /
+            <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">令和{'{n}'}年{'{m}'}月改定_</code> /
+            <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">令和{'{n}'}年{'{m}'}月{'{d}'}日_</code> の日付プレフィックスが付きますが、
+            社名圧縮後も89文字に収まらない場合は<strong>被保険者名を最優先で残すため、この日付プレフィックスを省略します</strong>
+            （帳票名 → 被保険者名の順で守ります）。
+          </p>
+          <p className="text-xs leading-relaxed opacity-90">
+            例: <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">令和7年度算定_山田 太郎様_厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ.pdf</code>
+            {' → '}
+            <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">山田 太郎様_厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ.pdf</code>
           </p>
         </div>
 
@@ -546,11 +562,11 @@ export default function Home() {
                   [社保]月額変更
                 </summary>
                 <ul className="space-y-1 px-3 pb-3 pt-1 ml-2">
-                  <li><span className="text-green-700 dark:text-green-400 font-semibold">変換（XML→PDF, 複数名統合）</span></li>
+                  <li><span className="text-green-700 dark:text-green-400 font-semibold">変換（XML→PDF, 被保険者ごと個別）</span></li>
                   <li className="ml-4">対象XML: 7140001.xml（標準報酬改定通知書） / 7210001.xml（70歳以上被用者月額改定）</li>
-                  <li className="ml-4">出力 (7140001): 令和{'{n}'}年{'{m}'}月改定_{'{名前}'}様他N名_健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf</li>
-                  <li className="ml-4">出力 (7210001): 令和{'{n}'}年{'{m}'}月改定_{'{名前}'}様他N名_厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ.pdf</li>
-                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">例: 令和7年9月改定_山田太郎様他1名_…改定通知書.pdf（1名のみの場合は「他N名」を省略）</li>
+                  <li className="ml-4">出力 (7140001): 令和{'{n}'}年{'{m}'}月改定_{'{名前}'}様_健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf</li>
+                  <li className="ml-4">出力 (7210001): 令和{'{n}'}年{'{m}'}月改定_{'{名前}'}様_厚生年金保険70歳以上被用者標準報酬月額相当額改定のお知らせ.pdf</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">例: 令和7年9月改定_山田太郎様_…改定通知書.pdf（複数名いる場合も被保険者ごとに1ファイルずつ生成）</li>
                   <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">改定年月はXMLから抽出。取れなかった場合は日付プレフィックス無しで出力。</li>
                   <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">✓ 既存PDFのページ分割＋リネーム</span></li>
                   <li className="ml-4">対象: 同梱の <code>7140001.pdf</code> / <code>7210001.pdf</code></li>
@@ -567,11 +583,11 @@ export default function Home() {
                   [社保]賞与支払届
                 </summary>
                 <ul className="space-y-1 px-3 pb-3 pt-1 ml-2">
-                  <li><span className="text-green-700 dark:text-green-400 font-semibold">変換（XML→PDF, 被保険者毎）</span></li>
+                  <li><span className="text-green-700 dark:text-green-400 font-semibold">変換（XML→PDF, 複数名統合）</span></li>
                   <li className="ml-4">対象XML: 7150001.xml（賞与額決定通知書） / 7220001.xml（70歳以上）</li>
-                  <li className="ml-4">出力 (7150001): 令和{'{n}'}年{'{m}'}月{'{d}'}日_{'{名前}'}様_健康保険・厚生年金保険被保険者賞与額決定通知書.pdf</li>
-                  <li className="ml-4">出力 (7220001): 令和{'{n}'}年{'{m}'}月{'{d}'}日_{'{名前}'}様_厚生年金保険70歳以上被用者標準賞与額相当額のお知らせ.pdf</li>
-                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">実データは1XMLあたり1名構造のため、被保険者ごとに1ファイル生成します。</li>
+                  <li className="ml-4">出力 (7150001): 令和{'{n}'}年{'{m}'}月{'{d}'}日_{'{名前}'}様他N名_健康保険・厚生年金保険被保険者賞与額決定通知書.pdf</li>
+                  <li className="ml-4">出力 (7220001): 令和{'{n}'}年{'{m}'}月{'{d}'}日_{'{名前}'}様他N名_厚生年金保険70歳以上被用者標準賞与額相当額のお知らせ.pdf</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">複数名が1XMLに含まれる場合は1つのPDFに統合（1名のみの場合は「他N名」を省略）。</li>
                   <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">賞与支払年月日はXMLから抽出。取れなかった場合は日付プレフィックス無しで出力します。</li>
                   <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">✓ 既存PDFのページ分割＋リネーム</span></li>
                   <li className="ml-4">対象: 同梱の <code>7150001.pdf</code> / <code>7220001.pdf</code>（複数名分の通知が1PDFにまとまっている場合も含む）</li>
@@ -588,11 +604,11 @@ export default function Home() {
                   [社保]算定基礎
                 </summary>
                 <ul className="space-y-1 px-3 pb-3 pt-1 ml-2">
-                  <li><span className="text-green-700 dark:text-green-400 font-semibold">変換（XML→PDF, 個人毎・年度プレフィックス付与）</span></li>
+                  <li><span className="text-green-700 dark:text-green-400 font-semibold">変換（XML→PDF, 年度プレフィックス付与）</span></li>
                   <li className="ml-4">対象XML: 7130001.xml（標準報酬決定通知書） / 7200001.xml（70歳以上被用者標準報酬決定）</li>
-                  <li className="ml-4">出力 (7130001): 令和{'{n}'}年度算定_{'{名前}'}様_健康保険・厚生年金保険被保険者標準報酬決定通知書.pdf</li>
-                  <li className="ml-4">出力 (7200001): 令和{'{n}'}年度算定_{'{名前}'}様_厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ.pdf</li>
-                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">例: 令和7年度算定_鈴木格様_健康保険・厚生年金保険被保険者標準報酬決定通知書.pdf</li>
+                  <li className="ml-4">出力 (7130001): <span className="font-semibold">複数名を1つのPDFに統合</span> → 令和{'{n}'}年度算定_{'{名前}'}様他N名_健康保険・厚生年金保険被保険者標準報酬決定通知書.pdf</li>
+                  <li className="ml-4">出力 (7200001): <span className="font-semibold">被保険者ごと個別</span> → 令和{'{n}'}年度算定_{'{名前}'}様_厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ.pdf</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">例 (7130001): 令和7年度算定_鈴木格様他2名_健康保険・厚生年金保険被保険者標準報酬決定通知書.pdf（1名のみの場合は「他N名」を省略）</li>
                   <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">年度はXMLの&lt;適用年月&gt;から抽出。算定基礎は適用年月=9月のため、年=年度として使用。</li>
                   <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">✓ 既存PDFのページ分割＋リネーム</span></li>
                   <li className="ml-4">対象: 同梱の <code>7130001.pdf</code> / <code>7200001.pdf</code>（複数名分の通知が1PDFにまとまっている場合も含む）</li>

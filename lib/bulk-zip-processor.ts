@@ -716,7 +716,7 @@ function isSanteiKisoContext(folderName: string, xmlContent: string): boolean {
   return false;
 }
 
-function applyShahoSanteiKisoYearPrefix(
+export function applyShahoSanteiKisoYearPrefix(
   fileName: string,
   folderName: string,
   applicableDate: string | undefined,
@@ -823,10 +823,12 @@ export async function processFolderDocuments(
               const pdfBuffer = await generatePdfFromHtml(html);
 
               // 個別PDFファイル名を生成
+              // 月額変更(A個別)は namingInfo の改定年月から「令和n年m月改定_」を付与する
               const baseFileName = generateIndividualPdfFileName(
                 procedureInfo.type,
                 insurer.name,
-                namingInfo.noticeTitle
+                namingInfo.noticeTitle,
+                namingInfo
               );
               // [社保]算定基礎フォルダでは「令和{n}年度算定_」プレフィックスを付与
               const pdfFileName = applyShahoSanteiKisoYearPrefix(
@@ -886,6 +888,14 @@ export async function processFolderDocuments(
           pdfFileName = generateSafePdfFileName(
             procedureInfo.type,
             namingInfo
+          );
+          // [社保]算定基礎(B連結, 7130001)では「令和{n}年度算定_」プレフィックスを付与。
+          // isSanteiKisoContext で算定基礎以外（賞与・その他）には付かないようガードされる。
+          pdfFileName = applyShahoSanteiKisoYearPrefix(
+            pdfFileName,
+            folder.folderName,
+            namingInfo.applicableDate,
+            xmlContent
           );
         }
 
@@ -1425,6 +1435,26 @@ export function fitEntryNameToShellLimit(
 ): string {
   const totalLen = folderPrefix.length + fileName.length;
   if (totalLen <= SHELL_ZIP_ENTRY_MAX_LEN) return fileName;
+
+  // 算定/月変/賞与のファイル名は氏名の前に日付・年度プレフィックスが付く
+  // （`令和{n}年度算定_`, `令和{n}年{m}月改定_`, `令和{n}年{m}月{d}日_`）。
+  // 後段の短縮処理は「最初の『様』より前」を被保険者名とみなして末尾から削るため、
+  // フォルダ名や帳票名が長いとプレフィックスが氏名と誤認され、氏名が丸ごと削られて
+  // `令和7年度算定様_…` のようにプレフィックスだけが残る不具合が起きる。
+  // 被保険者名は本人特定情報なので、超過時はまずプレフィックスを落として
+  // 氏名・帳票名のフル保持を優先する（ユーザー指示の優先順位: 日付PFX → 帳票名 → 氏名）。
+  const DATE_PREFIX_RE = /^(?:令和|平成|昭和)\d+年(?:度算定|\d+月改定|\d+月\d+日)_/;
+  const prefixMatch = fileName.match(DATE_PREFIX_RE);
+  if (prefixMatch) {
+    const stripped = fileName.slice(prefixMatch[0].length);
+    if (folderPrefix.length + stripped.length <= SHELL_ZIP_ENTRY_MAX_LEN) {
+      // プレフィックスを落とすだけで収まる → 氏名・帳票名はフル保持
+      return stripped;
+    }
+    // 落としても収まらない極端ケースは、プレフィックス無しの氏名で以降の
+    // 氏名トリミングへ進む（プレフィックスは復活させない）。
+    fileName = stripped;
+  }
 
   const budget = SHELL_ZIP_ENTRY_MAX_LEN - folderPrefix.length;
   if (budget < 1) return fileName;

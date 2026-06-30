@@ -36,7 +36,7 @@ export function detectProcedureType(xmlContent: string): ProcedureInfo {
     N7027001: 'その他', // 厚生年金保険養育期間標準報酬月額特例申出受理通知書（1人1ファイル）
     N7100001: '取得', // 資格取得確認および標準報酬決定通知書
     N7120002: '喪失', // 資格喪失確認通知書
-    N7130001: '取得', // 標準報酬決定通知書
+    N7130001: '算定基礎届', // 標準報酬決定通知書（定時決定＝算定基礎の結果）→ 複数名連結PDF(B)
     N7140001: '月額変更', // 標準報酬改定通知書
     N7150001: '賞与', // 健康保険・厚生年金保険被保険者賞与額決定通知書
     N7170003: '取得', // 健康保険被扶養者（異動）決定通知書
@@ -48,8 +48,11 @@ export function detectProcedureType(xmlContent: string): ProcedureInfo {
 
   if (socialInsurancePatterns[rootTag]) {
     const type = socialInsurancePatterns[rootTag];
-    // 社会保険：取得・喪失は個別PDF、それ以外は連結PDF
-    const pdfStrategy = (type === '取得' || type === '喪失') ? 'individual' : 'combined';
+    // 社会保険：取得・喪失・月額変更は個別PDF(A)、算定基礎届・賞与・その他は連結PDF(B)
+    const pdfStrategy =
+      (type === '取得' || type === '喪失' || type === '月額変更')
+        ? 'individual'
+        : 'combined';
     return {
       type,
       category: '社会保険',

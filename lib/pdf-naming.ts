@@ -70,19 +70,9 @@ export function generatePdfFileName(
       return `${info.noticeTitle}.pdf`;
 
     case '算定基礎届':
-      // 適用年月_被保険者名様_通知書名.pdf
-      if (info.revisionDate) {
-        if (info.firstInsurerName) {
-          if (info.insurerCount > 1) {
-            const othersCount = info.insurerCount - 1;
-            return `${info.revisionDate}_${info.firstInsurerName}様他${othersCount}名_${info.noticeTitle}.pdf`;
-          }
-          return `${info.revisionDate}_${info.firstInsurerName}様_${info.noticeTitle}.pdf`;
-        }
-        return `${info.revisionDate}_${info.noticeTitle}.pdf`;
-      }
-
-      // 適用年月が取得できない場合
+      // 算定基礎届(B連結): 被保険者名様[他N名]_通知書名.pdf
+      // 「令和{n}年度算定_」プレフィックスは bulk-zip-processor の
+      // applyShahoSanteiKisoYearPrefix が連結PDFファイル名に付与する。
       if (info.firstInsurerName) {
         if (info.insurerCount > 1) {
           const othersCount = info.insurerCount - 1;
@@ -197,14 +187,30 @@ export function generateSafePdfFileName(
 
 /**
  * 個別被保険者用のPDF命名
+ *
+ * 月額変更(A個別)は改定年月プレフィックスを付与する:
+ *   令和{n}年{m}月改定_{被保険者名}様_{通知書名}.pdf
+ * 改定年月(info.applicableDate || info.revisionDate)が取れない場合は
+ *   {被保険者名}様_{通知書名}.pdf にフォールバックする。
  */
 export function generateIndividualPdfFileName(
   procedureType: ProcedureType,
   insurerName: string,
-  noticeTitle: string
+  noticeTitle: string,
+  info?: Pick<NamingInfo, 'applicableDate' | 'revisionDate'>
 ): string {
   // 社会保険・雇用保険の取得・喪失は「被保険者名様_通知書名.pdf」
   if (procedureType === '取得' || procedureType === '喪失') {
+    return sanitizeFileName(`${insurerName}様_${noticeTitle}.pdf`);
+  }
+
+  // 月額変更(A個別): 「令和n年m月改定_被保険者名様_通知書名.pdf」
+  if (procedureType === '月額変更') {
+    const revision = info?.applicableDate || info?.revisionDate;
+    if (revision) {
+      const datePrefix = formatEraDateForFilename(revision, '改定');
+      return sanitizeFileName(`${datePrefix}_${insurerName}様_${noticeTitle}.pdf`);
+    }
     return sanitizeFileName(`${insurerName}様_${noticeTitle}.pdf`);
   }
 
