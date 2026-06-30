@@ -13,13 +13,13 @@ describe('detectProcedureType — N7xxxxxx 社会保険フォーマット', () =
     ['N7027001', 'その他',  'combined'],   // 養育期間特例（1人1ファイル, 連結扱い）
     ['N7100001', '取得',    'individual'], // 資格取得
     ['N7120002', '喪失',    'individual'], // 資格喪失
-    ['N7130001', '取得',    'individual'], // 算定基礎
-    ['N7140001', '月額変更', 'combined'],   // 月額変更
+    ['N7130001', '算定基礎届', 'combined'],  // 算定基礎(B連結)
+    ['N7140001', '月額変更', 'individual'], // 月額変更(A個別)
     ['N7150001', '賞与',    'combined'],   // 賞与支払届
     ['N7170003', '取得',    'individual'], // 扶養異動
     ['N7180001', '取得',    'individual'], // 70歳以上 資格取得
-    ['N7200001', '取得',    'individual'], // 70歳以上 算定基礎
-    ['N7210001', '月額変更', 'combined'],   // 70歳以上 月額変更
+    ['N7200001', '取得',    'individual'], // 70歳以上 算定基礎(取得相当・A個別のまま)
+    ['N7210001', '月額変更', 'individual'], // 70歳以上 月額変更(A個別)
     ['N7220001', '賞与',    'combined'],   // 70歳以上 賞与
   ] as const)('%s → type=%s, strategy=%s', (tag, type, strategy) => {
     const info = detectProcedureType(wrap(tag));
