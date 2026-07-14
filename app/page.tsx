@@ -576,6 +576,21 @@ export default function Home() {
                 </ul>
               </details>
 
+              {/* === [社保]育児休業終了時月額変更 === */}
+              <details className="group rounded border border-blue-200/60 dark:border-blue-800/60 bg-white/40 dark:bg-blue-900/20">
+                <summary className="cursor-pointer select-none px-3 py-2 font-semibold list-none flex items-center gap-2 hover:bg-blue-100/60 dark:hover:bg-blue-900/40 rounded">
+                  <span className="inline-block transition-transform group-open:rotate-90">▶</span>
+                  [社保]育児休業終了時月額変更
+                </summary>
+                <ul className="space-y-1 px-3 pb-3 pt-1 ml-2">
+                  <li><span className="text-green-700 dark:text-green-400 font-semibold">変換（XML→PDF, 被保険者ごと個別）</span></li>
+                  <li className="ml-4">対象XML: 2050001.xml（育児休業終了時月額変更届の結果＝標準報酬改定通知書）</li>
+                  <li className="ml-4">出力: {'{被保険者名}様_健康保険・厚生年金保険被保険者標準報酬改定通知書.pdf'}</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">通知書名は通常の月額変更(7140001)と同じですが、<span className="font-semibold">被保険者単位・日付プレフィックス無し</span>で命名します（1ファイル1被保険者）。</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">2050001.xsl は外枠が横長レイアウトのため、A4幅に自動フィットさせて1ページに収まるようレイアウト補正しています。</li>
+                </ul>
+              </details>
+
               {/* === [社保]賞与支払届 === */}
               <details className="group rounded border border-blue-200/60 dark:border-blue-800/60 bg-white/40 dark:bg-blue-900/20">
                 <summary className="cursor-pointer select-none px-3 py-2 font-semibold list-none flex items-center gap-2 hover:bg-blue-100/60 dark:hover:bg-blue-900/40 rounded">
