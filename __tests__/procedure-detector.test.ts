@@ -9,6 +9,7 @@ const wrap = (rootTag: string, body = '') => `<?xml version="1.0"?><${rootTag}>$
 describe('detectProcedureType — N7xxxxxx 社会保険フォーマット', () => {
   it.each([
     // [rootTag,       expectedType, expectedStrategy]
+    ['N2050001', 'その他',  'combined'],   // 育児休業終了時月額変更（被保険者単位・日付無し）
     ['N7012001', 'その他',  'combined'],   // 新規適用（会社単位）
     ['N7027001', 'その他',  'combined'],   // 養育期間特例（1人1ファイル, 連結扱い）
     ['N7100001', '取得',    'individual'], // 資格取得

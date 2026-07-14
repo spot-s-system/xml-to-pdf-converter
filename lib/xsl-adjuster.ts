@@ -209,6 +209,54 @@ export function addPreTextWrapping(xslContent: string): string {
 }
 
 /**
+ * N2050001（育児休業終了時月額変更 → 標準報酬改定通知書）専用のレイアウト補正
+ *
+ * この通知書の XSL は他の社保公文書（外枠 width:640px の縦長レイアウト）と異なり、
+ * 外枠 `table.outline` が width:940px / height:640px の横長レイアウトで組まれている。
+ * そのため 640px 系向けに調整された汎用CSS（`adjustXslForA4` の
+ * `table.outline{width:720px !important}` と `addPreTextWrapping` の
+ * `table{table-layout:fixed}`）をそのまま適用すると崩れる:
+ *   - 720px 強制で外枠が内部表(840px)より狭くなり、
+ *   - table-layout:fixed が「決定後の標準報酬月額」行(colgroupが4列しか定義して
+ *     いない6セル行)の (厚年)側金額セルを 0px 幅に潰し、「340 千円」が改行される。
+ *
+ * 対策（この XSL に限定して最後に上書き）:
+ *   1. 外枠を本来の 940px に戻す（内部表 840px + パディングを収める）。
+ *   2. 明細テーブルを table-layout:auto に戻し、セルを内容幅で自然に配置する。
+ *   3. 940px は A4 印刷可能幅(約737px @96dpi,5/10mmマージン)を超えるため、
+ *      `zoom` でページ幅に収まるよう全体を縮小する（フォントも一緒に縮むので
+ *      「340 千円」等が1行に収まったまま欠けずに収まる）。Edge の Print to PDF
+ *      の fit-to-width と同等の見た目になる。
+ *
+ * 検出は XSL 内の `N2050001`（`<xsl:template match="N2050001">`）で行う。
+ */
+const N2050001_ZOOM = 0.78;
+export function adjustForN2050001(xslContent: string): string {
+  if (!/N2050001/.test(xslContent)) return xslContent;
+
+  const fix = `
+    /* --- N2050001 専用レイアウト補正（640px系向け汎用CSSの上書き） --- */
+    table.outline {
+      width: 940px !important;
+      height: auto !important;
+    }
+    table.detail,
+    table.Lterritory,
+    table.Rterritory {
+      table-layout: auto !important;
+    }
+    body {
+      zoom: ${N2050001_ZOOM};
+    }
+  `;
+
+  if (xslContent.match(/<\/STYLE>/i)) {
+    return xslContent.replace(/<\/STYLE>/i, `${fix}</style>`);
+  }
+  return xslContent.replace(/<\/style>/i, `${fix}</style>`);
+}
+
+/**
  * Normalize all HTML tag case to lowercase for XML compliance
  */
 function normalizeAllHtmlTags(content: string): string {
@@ -267,6 +315,9 @@ export function optimizeXslForPdf(xslContent: string): string {
 
   // Step 4: Add text wrapping for pre tags
   optimized = addPreTextWrapping(optimized);
+
+  // Step 4.5: N2050001 専用のレイアウト補正（該当XSLのみ。上の汎用CSSを最後に上書き）
+  optimized = adjustForN2050001(optimized);
 
   // Step 5: Add meta tags after <head>
   optimized = optimized.replace(

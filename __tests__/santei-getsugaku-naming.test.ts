@@ -77,3 +77,28 @@ describe('月額変更(A個別) 命名', () => {
     expect(name).toBe(`山田太郎様_${GETSUGAKU_TITLE}.pdf`);
   });
 });
+
+describe('育児休業終了時月額変更(N2050001) 命名', () => {
+  // 7140001（通常の月額変更）と通知書名は同じだが、被保険者単位・日付プレフィックス
+  // 無しの「{被保険者名}様_{通知書名}.pdf」で出力する（procedure-detector で 'その他'
+  // 扱い）。氏名内の全角スペースは pdf-naming.sanitizeFileName が半角1個に collapse する。
+  const folderName = '0001_株式会社テスト_[社保]育児休業終了時月額変更届_公文書_1';
+  const xml = '<N2050001></N2050001>';
+
+  it('{被保険者名}様_標準報酬改定通知書.pdf（日付プレフィックス無し）', () => {
+    const info: NamingInfo = {
+      firstInsurerName: '山田　花子', // 全角スペース入り（架空氏名）
+      insurerCount: 1,
+      allInsurers: [{ name: '山田　花子' }],
+      noticeTitle: GETSUGAKU_TITLE,
+    };
+    const name = generateSafePdfFileName('その他', info);
+    expect(name).toBe(`山田 花子様_${GETSUGAKU_TITLE}.pdf`);
+  });
+
+  it('育児(終了時月変)フォルダには算定年度プレフィックスを付与しない', () => {
+    const base = `山田 花子様_${GETSUGAKU_TITLE}.pdf`;
+    // isSanteiKisoContext が false（[社保]育児… かつ N2050001）なので素通し
+    expect(applyShahoSanteiKisoYearPrefix(base, folderName, 'R08年07月', xml)).toBe(base);
+  });
+});
