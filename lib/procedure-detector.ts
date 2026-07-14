@@ -30,8 +30,14 @@ export function detectProcedureType(xmlContent: string): ProcedureInfo {
 
   const rootTag = rootTagMatch[1];
 
-  // N7xxxxx系の社会保険フォーマット
+  // N7xxxxx系の社会保険フォーマット（+ 育児休業終了時月額変更の N2050001）
   const socialInsurancePatterns: Record<string, ProcedureType> = {
+    // 育児休業終了時月額変更届の結果通知（標準報酬改定通知書）。
+    // 7140001（通常の月額変更）と違い、被保険者単位で日付プレフィックス無しの
+    // 「{被保険者名}様_{通知書名}.pdf」に命名したいので、日付プレフィックスを
+    // 付与する '月額変更' ではなく 'その他' として扱う（pdf-naming の 'その他'
+    // 分岐が `{name}様_{title}.pdf` を生成する）。1ファイル1被保険者。
+    N2050001: 'その他',
     N7012001: 'その他', // 新規適用通知書（会社単位）
     N7027001: 'その他', // 厚生年金保険養育期間標準報酬月額特例申出受理通知書（1人1ファイル）
     N7100001: '取得', // 資格取得確認および標準報酬決定通知書

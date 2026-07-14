@@ -61,8 +61,10 @@ export function extractNoticeTitle(
   xmlContent: string,
   kagazmiXmlContent?: string
 ): string {
-  // N7xxxxx形式のルートタグから N を剥がして通知書名を決定
-  const rootTagMatch = xmlContent.match(/<N(7\d{6})[\s>]/);
+  // N{7桁ID}形式のルートタグから N を剥がして通知書名を決定
+  // 大半は N7xxxxx だが、育児休業終了時月額変更の改定通知は N2050001。
+  // ID を SHAHO_NOTICE_TITLES で引けたものだけ採用する（未知の N タグには反応しない）。
+  const rootTagMatch = xmlContent.match(/<N(\d{7})[\s>]/);
   if (rootTagMatch) {
     const noticeId = rootTagMatch[1];
     if (SHAHO_NOTICE_TITLES[noticeId]) {
@@ -361,7 +363,11 @@ export function extractNamingInfo(
     info = { ...info, ...extractFromDataRoot(xmlContent) };
   } else if (xmlContent.includes('<DOC')) {
     info = { ...info, ...extractFromEmploymentInsurance(xmlContent) };
-  } else if (xmlContent.match(/<N7\d{6}>/)) {
+  } else if (xmlContent.match(/<N\d{7}[\s>]/)) {
+    // N7xxxxx（大半の社保通知書）に加え、N2050001（育児休業終了時月額変更の
+    // 改定通知）も同じ抽出ロジックに乗せる。N2050001 は <_被保険者> ブロックを
+    // 持たないフラット構造だが、extractFromSocialInsurance の else 分岐で
+    // ルート直下の <被保険者氏名> から氏名を拾える。
     info = { ...info, ...extractFromSocialInsurance(xmlContent, procedureType) };
   }
 
