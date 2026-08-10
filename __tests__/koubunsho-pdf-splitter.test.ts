@@ -192,17 +192,17 @@ describe('extractInsurerNameFromItems — テキストアイテムから被保�
 
 describe('formatNamesWithOthers — リネームのみ通知書 (7130001/7150001) のファイル名先頭部', () => {
   it('1名 → 「{名前}様」（他N名は付かない）', () => {
-    expect(formatNamesWithOthers(['原 岬平'])).toBe('原 岬平様');
+    expect(formatNamesWithOthers(['山田 太郎'])).toBe('山田 太郎様');
   });
 
   it('複数名 → 「{先頭名}様他N名」', () => {
     expect(
-      formatNamesWithOthers(['大谷 駿斗', '三木 瞭平', '田中 廉人', '富永 リイ子'])
-    ).toBe('大谷 駿斗様他3名');
+      formatNamesWithOthers(['山田 太郎', '佐藤 花子', '鈴木 一郎', '高橋 次郎'])
+    ).toBe('山田 太郎様他3名');
   });
 
   it('同一人物が複数ページに跨る場合は重複を除いて数える', () => {
-    expect(formatNamesWithOthers(['山田太郎', '山田太郎', '鈴木格'])).toBe(
+    expect(formatNamesWithOthers(['山田太郎', '山田太郎', '佐藤花子'])).toBe(
       '山田太郎様他1名'
     );
   });
