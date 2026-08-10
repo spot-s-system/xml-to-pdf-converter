@@ -3,6 +3,7 @@ import {
   isShahoKoubunshoPdfFileName,
   getNoticeTitleFromPdfFileName,
   extractInsurerNameFromItems,
+  formatNamesWithOthers,
 } from '@/lib/koubunsho-pdf-splitter';
 
 describe('isShahoKoubunshoPdfFileName — 社保公文書PDF判定', () => {
@@ -186,6 +187,33 @@ describe('extractInsurerNameFromItems — テキストアイテムから被保�
 
     // サブヘッダ文字列は KNOWN_LABELS or ※ で弾かれて null
     expect(extractInsurerNameFromItems(items)).toBe(null);
+  });
+});
+
+describe('formatNamesWithOthers — リネームのみ通知書 (7130001/7150001) のファイル名先頭部', () => {
+  it('1名 → 「{名前}様」（他N名は付かない）', () => {
+    expect(formatNamesWithOthers(['原 岬平'])).toBe('原 岬平様');
+  });
+
+  it('複数名 → 「{先頭名}様他N名」', () => {
+    expect(
+      formatNamesWithOthers(['大谷 駿斗', '三木 瞭平', '田中 廉人', '富永 リイ子'])
+    ).toBe('大谷 駿斗様他3名');
+  });
+
+  it('同一人物が複数ページに跨る場合は重複を除いて数える', () => {
+    expect(formatNamesWithOthers(['山田太郎', '山田太郎', '鈴木格'])).toBe(
+      '山田太郎様他1名'
+    );
+  });
+
+  it('姓名間の半角スペースは保持し、OS禁止文字のみ除去する', () => {
+    expect(formatNamesWithOthers(['山田/太郎'])).toBe('山田太郎様');
+  });
+
+  it('氏名が無い場合は空文字（呼び出し側でフォールバック）', () => {
+    expect(formatNamesWithOthers([])).toBe('');
+    expect(formatNamesWithOthers(['  '])).toBe('');
   });
 });
 

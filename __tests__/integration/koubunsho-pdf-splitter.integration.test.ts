@@ -29,35 +29,30 @@ describe('integration: 7150001_multi.pdf (複数名分の賞与決定通知書)'
   const has = await fixtureExists(fixtureName);
 
   it.skipIf(!has)(
-    '4名・5ページ → 4個の分割PDF＋付記ページを各PDFに同梱',
+    '4名・5ページ → 分割せず1ファイル（{先頭名}様他3名 にリネーム）',
     async () => {
       const pdfBuffer = await fs.readFile(path.join(FIXTURES_DIR, fixtureName));
 
       const results = await splitShahoKoubunshoPdf(pdfBuffer, '7150001.pdf');
 
-      expect(results.length).toBe(4);
+      // 7150001 (賞与) は RENAME_ONLY: 被保険者ごとの分割は行わない
+      expect(results.length).toBe(1);
 
       // PDF 上の姓-名の間にある視覚的空白は半角スペースとして保持する
       // （フォルダ名表記 `大谷 駿斗` 等と一致させる）
-      const names = results.map((r) => r.name);
-      expect(names).toContain(
-        '大谷 駿斗様_健康保険・厚生年金保険被保険者賞与額決定通知書.pdf'
+      expect(results[0].name).toMatch(
+        /^.+ .+様他3名_健康保険・厚生年金保険被保険者賞与額決定通知書\.pdf$/
       );
-      expect(names).toContain(
-        '三木 瞭平様_健康保険・厚生年金保険被保険者賞与額決定通知書.pdf'
-      );
-      expect(names).toContain(
-        '田中 廉人様_健康保険・厚生年金保険被保険者賞与額決定通知書.pdf'
-      );
-      expect(names).toContain(
-        '富永 リイ子様_健康保険・厚生年金保険被保険者賞与額決定通知書.pdf'
-      );
+      expect(
+        ['大谷 駿斗', '三木 瞭平', '田中 廉人', '富永 リイ子'].some((n) =>
+          results[0].name.startsWith(`${n}様他3名_`)
+        )
+      ).toBe(true);
 
-      // 各分割PDFは [通知ページ + 付記ページ] = 2ページ
-      for (const r of results) {
-        const doc = await PDFDocument.load(r.buffer);
-        expect(doc.getPageCount()).toBe(2);
-      }
+      // 元PDFの全ページがそのまま維持されること
+      const sourceDoc = await PDFDocument.load(pdfBuffer);
+      const doc = await PDFDocument.load(results[0].buffer);
+      expect(doc.getPageCount()).toBe(sourceDoc.getPageCount());
     },
     30000
   );
@@ -75,7 +70,7 @@ describe('integration: 7150001_single.pdf (単独名の賞与決定通知書)', 
   const fixtureName = '7150001_single.pdf';
   const has = await fixtureExists(fixtureName);
 
-  it.skipIf(!has)('1名・2ページ → 1個の分割PDF', async () => {
+  it.skipIf(!has)('1名・2ページ → リネームのみ（「他N名」は付かない）', async () => {
     const pdfBuffer = await fs.readFile(path.join(FIXTURES_DIR, fixtureName));
 
     const results = await splitShahoKoubunshoPdf(pdfBuffer, '7150001.pdf');

@@ -16,6 +16,9 @@
  *   3) pdf-lib で 通知ページ + 付記ページを組み合わせた個別 PDF を生成
  *   4) `{被保険者名}様_{通知書名}.pdf` にリネーム
  *
+ * ただし 7130001 (算定基礎) / 7150001 (賞与) は分割せず、元 PDF のまま
+ * `{先頭の被保険者名}様他N名_{通知書名}.pdf` にリネームするだけ（RENAME_ONLY_NOTICE_IDS）。
+ *
  * 通知ページが 0 件（被保険者氏名が抽出できなかった）→ 分割せず空配列を返す。
  * 呼び出し側はその場合は通常のリネーム経路にフォールバックすること。
  */
@@ -101,6 +104,18 @@ const NON_SPLITTABLE_NOTICE_IDS = new Set([
   '7020001',
   '7027001',
 ]);
+
+/**
+ * ページ分割せず「リネームのみ」を行う通知書 ID
+ *  - 7150001: 健康保険・厚生年金保険被保険者賞与額決定通知書（賞与支払届）
+ *  - 7130001: 健康保険・厚生年金保険被保険者標準報酬決定通知書（算定基礎届）
+ *
+ * いずれも複数被保険者分の通知をまとめて 1 ファイルで扱う運用のため、
+ * 被保険者ごとには分割せず、元 PDF のまま
+ * `{先頭の被保険者名}様他N名_{通知書名}.pdf` にリネームする。
+ * ※ 70歳以上被用者分 (7220001 / 7200001) は従来どおり被保険者ごとに分割する。
+ */
+const RENAME_ONLY_NOTICE_IDS = new Set(['7150001', '7130001']);
 
 function extractNoticeId(fileName: string): string | null {
   const m = fileName.match(/^(7\d{6})\.pdf$/i);
@@ -262,6 +277,26 @@ export function extractInsurerNameFromItems(
   return name;
 }
 
+/**
+ * 複数被保険者を 1 ファイルにまとめる場合のファイル名先頭部を組み立てる
+ *   ['山田太郎']                     → `山田太郎様`
+ *   ['山田太郎', '鈴木格', '東 鈴加'] → `山田太郎様他2名`
+ *
+ * 同一人物が複数ページに跨るケースを考慮し、人数は重複を除いた氏名数で数える。
+ * `document-names.formatInsuredPersonNames` と同じ表記だが、公文書PDFから抽出した
+ * 氏名は姓名間の半角スペースを保持する必要があるためこちらの sanitize を使う。
+ *
+ * @internal — テスト用 export。
+ */
+export function formatNamesWithOthers(names: string[]): string {
+  const unique = [...new Set(names.map(sanitizeInsurerNameForFilename))].filter(
+    (n) => n.length > 0
+  );
+  if (unique.length === 0) return '';
+  if (unique.length === 1) return `${unique[0]}様`;
+  return `${unique[0]}様他${unique.length - 1}名`;
+}
+
 interface PageClassification {
   pageIndex: number; // 0-based (pdf-lib用)
   insurerName: string | null; // null = 付記/補足ページ
@@ -340,6 +375,22 @@ export async function splitShahoKoubunshoPdf(
 
   if (noticePages.length === 0) {
     return [];
+  }
+
+  // リネームのみ対象 (7150001 賞与) → 分割せず元PDFのままファイル名だけ差し替える
+  const noticeId = extractNoticeId(pdfFileName);
+  if (noticeId && RENAME_ONLY_NOTICE_IDS.has(noticeId)) {
+    const namePrefix = formatNamesWithOthers(
+      noticePages.map((p) => p.insurerName as string)
+    );
+    // 氏名がサニタイズ後に全て空になった場合は呼び出し側のフォールバックに委ねる
+    if (!namePrefix) return [];
+    return [
+      {
+        name: `${namePrefix}_${title}.pdf`,
+        buffer: pdfBuffer,
+      },
+    ];
   }
 
   // 同名の衝突を回避
