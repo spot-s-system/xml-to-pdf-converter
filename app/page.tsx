@@ -604,11 +604,12 @@ export default function Home() {
                   <li className="ml-4">出力 (7220001): 令和{'{n}'}年{'{m}'}月{'{d}'}日_{'{名前}'}様他N名_厚生年金保険70歳以上被用者標準賞与額相当額のお知らせ.pdf</li>
                   <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">複数名が1XMLに含まれる場合は1つのPDFに統合（1名のみの場合は「他N名」を省略）。</li>
                   <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">賞与支払年月日はXMLから抽出。取れなかった場合は日付プレフィックス無しで出力します。</li>
-                  <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">✓ 既存PDFのページ分割＋リネーム</span></li>
+                  <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">✓ 既存PDFのリネーム／ページ分割</span></li>
                   <li className="ml-4">対象: 同梱の <code>7150001.pdf</code> / <code>7220001.pdf</code>（複数名分の通知が1PDFにまとまっている場合も含む）</li>
-                  <li className="ml-4">出力 (7150001): {'{被保険者名}様_健康保険・厚生年金保険被保険者賞与額決定通知書.pdf'}</li>
-                  <li className="ml-4">出力 (7220001): {'{被保険者名}様_厚生年金保険70歳以上被用者標準賞与額相当額のお知らせ.pdf'}</li>
-                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">PDFを1ページずつスキャンし、「被保険者氏名」欄から名前を読み取って個別PDFに分割（例: 4名分の7150001.pdf → 4個の被保険者別PDF）。各分割PDFには通知書末尾の付記/不服申立て案内ページを同梱します。名前が読み取れない場合は元PDFをそのまま残置します。</li>
+                  <li className="ml-4">出力 (7150001): <span className="font-semibold">リネームのみ（分割しない）</span> → {'{名前}様他N名_健康保険・厚生年金保険被保険者賞与額決定通知書.pdf'}</li>
+                  <li className="ml-4">出力 (7220001): <span className="font-semibold">被保険者ごとに分割</span> → {'{被保険者名}様_厚生年金保険70歳以上被用者標準賞与額相当額のお知らせ.pdf'}</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">7150001はPDFの中身をそのまま1ファイルで維持し、「被保険者氏名」欄から読み取った先頭の名前でリネームします（1名のみの場合は「他N名」を省略）。</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">7220001はPDFを1ページずつスキャンし、「被保険者氏名」欄から名前を読み取って個別PDFに分割（例: 4名分の7220001.pdf → 4個の被保険者別PDF）。各分割PDFには通知書末尾の付記/不服申立て案内ページを同梱します。名前が読み取れない場合は元PDFをそのまま残置します。</li>
                 </ul>
               </details>
 
@@ -625,11 +626,13 @@ export default function Home() {
                   <li className="ml-4">出力 (7200001): <span className="font-semibold">被保険者ごと個別</span> → 令和{'{n}'}年度算定_{'{名前}'}様_厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ.pdf</li>
                   <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">例 (7130001): 令和7年度算定_鈴木格様他2名_健康保険・厚生年金保険被保険者標準報酬決定通知書.pdf（1名のみの場合は「他N名」を省略）</li>
                   <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">年度はXMLの&lt;適用年月&gt;から抽出。算定基礎は適用年月=9月のため、年=年度として使用。</li>
-                  <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">✓ 既存PDFのページ分割＋リネーム</span></li>
+                  <li className="pt-2"><span className="text-green-700 dark:text-green-400 font-semibold">✓ 既存PDFのリネーム／ページ分割</span></li>
                   <li className="ml-4">対象: 同梱の <code>7130001.pdf</code> / <code>7200001.pdf</code>（複数名分の通知が1PDFにまとまっている場合も含む）</li>
-                  <li className="ml-4">出力 (7130001): {'{被保険者名}様_健康保険・厚生年金保険被保険者標準報酬決定通知書.pdf'}</li>
-                  <li className="ml-4">出力 (7200001): {'{被保険者名}様_厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ.pdf'}</li>
-                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">PDFを1ページずつスキャンし、「被保険者氏名」欄から名前を読み取って個別PDFに分割。各分割PDFには通知書末尾の付記/不服申立て案内ページを同梱します。名前が読み取れない場合は元PDFをそのまま残置します（XML→PDFと違い、既存PDFには「令和{'{n}'}年度算定_」プレフィックスは付与されません）。</li>
+                  <li className="ml-4">出力 (7130001): <span className="font-semibold">リネームのみ（分割しない）</span> → {'{名前}様他N名_健康保険・厚生年金保険被保険者標準報酬決定通知書.pdf'}</li>
+                  <li className="ml-4">出力 (7200001): <span className="font-semibold">被保険者ごとに分割</span> → {'{被保険者名}様_厚生年金保険70歳以上被用者標準報酬月額相当額決定のお知らせ.pdf'}</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">7130001はPDFの中身をそのまま1ファイルで維持し、「被保険者氏名」欄から読み取った先頭の名前でリネームします（1名のみの場合は「他N名」を省略）。</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">7200001はPDFを1ページずつスキャンし、「被保険者氏名」欄から名前を読み取って個別PDFに分割。各分割PDFには通知書末尾の付記/不服申立て案内ページを同梱します。名前が読み取れない場合は元PDFをそのまま残置します。</li>
+                  <li className="ml-4 text-xs text-gray-600 dark:text-gray-400">いずれもXML→PDFと違い、既存PDFには「令和{'{n}'}年度算定_」プレフィックスは付与されません。</li>
                 </ul>
               </details>
 
