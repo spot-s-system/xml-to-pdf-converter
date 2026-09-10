@@ -375,6 +375,46 @@ export async function analyzeFolderStructure(
 }
 
 /**
+ * XML本文中の明示的なスタイルシート参照からXSLファイル名を特定する
+ *
+ * 郵送公文書ロボット側のDataRoot形式XML（XSLファイル名がXMLと同名でない場合）、
+ * および e-Gov電子申請API側のXML（XSLファイル名が `STYLESHEET1.XSL` 等の任意名で、
+ * `kagami.xsl` 固定名を前提にできない）の両方を救済するための共通ロジック。
+ *
+ * 検出優先順位:
+ *   1. `<?xml-stylesheet href="..." type="text/xsl"?>` 処理命令
+ *   2. `<STYLESHEET>...</STYLESHEET>` タグ（フォールバック）
+ *
+ * どちらも見つからない場合は undefined を返す。
+ */
+function findXslFileFromXmlContent(
+  xmlContent: string,
+  xslFiles: string[]
+): string | undefined {
+  // xml-stylesheet処理命令から探す
+  const piMatch = xmlContent.match(
+    /<\?xml-stylesheet[^>]*href="([^"]+)"/
+  );
+  if (piMatch) {
+    const href = piMatch[1];
+    const found = xslFiles.find((f) => f === href);
+    if (found) return found;
+  }
+
+  // <STYLESHEET>タグから探す（フォールバック）
+  const stylesheetMatch = xmlContent.match(
+    /<STYLESHEET>(.*?)<\/STYLESHEET>/
+  );
+  if (stylesheetMatch) {
+    const stylesheetName = stylesheetMatch[1];
+    const found = xslFiles.find((f) => f === stylesheetName);
+    if (found) return found;
+  }
+
+  return undefined;
+}
+
+/**
  * XML/XSLペアを検出
  */
 async function detectDocumentPairs(
@@ -393,6 +433,7 @@ async function detectDocumentPairs(
     //              届出控(電子申請データの写し)フォルダは末尾に "00" 等が付いた
     //              20桁になる (例 20260508095740309400.xml)。どちらも kagami として
     //              扱わないと kagami本文ベースの届出控判定が効かない。
+    // 郵送公文書ロボット側のkagami.xsl固定名判定はそのまま正として残す。
     const isKagami =
       baseName.toLowerCase() === 'kagami' ||
       /^\d{18,20}$/.test(baseName);
@@ -401,40 +442,34 @@ async function detectDocumentPairs(
     let xslFile: string | undefined;
 
     if (isKagami) {
-      // kagami.xslを探す
+      // kagami.xslを探す（郵送公文書ロボット側の既存動作。ここは変更しない）
       xslFile = xslFiles.find((f) =>
         path.basename(f, path.extname(f)).toLowerCase() === 'kagami'
       );
+
+      // フォールバック: kagami.xsl固定名が見つからない場合（e-Gov側ZIP等、
+      // XSLファイル名が任意名のケース）、XML本文の明示的な参照からXSLを特定する。
+      if (!xslFile) {
+        const xmlContent = await fs.readFile(
+          path.join(folderPath, xmlFile),
+          'utf-8'
+        );
+        xslFile = findXslFileFromXmlContent(xmlContent, xslFiles);
+      }
     } else {
       // 同名のXSLを探す
       xslFile = xslFiles.find(
         (f) => path.basename(f, path.extname(f)) === baseName
       );
 
-      // DataRoot形式の場合、<STYLESHEET>タグからXSLファイル名を取得
+      // 同名XSLが見つからない場合、XML本文の明示的な参照から特定する
+      // （DataRoot形式の<STYLESHEET>タグ、またはe-Gov側のxml-stylesheet処理命令）
       if (!xslFile) {
         const xmlContent = await fs.readFile(
           path.join(folderPath, xmlFile),
           'utf-8'
         );
-        const stylesheetMatch = xmlContent.match(
-          /<STYLESHEET>(.*?)<\/STYLESHEET>/
-        );
-        if (stylesheetMatch) {
-          const stylesheetName = stylesheetMatch[1];
-          xslFile = xslFiles.find((f) => f === stylesheetName);
-        }
-
-        // xml-stylesheet処理命令からも探す
-        if (!xslFile) {
-          const piMatch = xmlContent.match(
-            /<\?xml-stylesheet[^>]*href="([^"]+)"/
-          );
-          if (piMatch) {
-            const href = piMatch[1];
-            xslFile = xslFiles.find((f) => f === href);
-          }
-        }
+        xslFile = findXslFileFromXmlContent(xmlContent, xslFiles);
       }
     }
 
