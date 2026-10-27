@@ -6,7 +6,9 @@
  *
  *   1. 本アプリ → opener : { type: 'xml-to-pdf:ready' }（ZIP受信まで1秒毎に再送）
  *   2. opener → 本アプリ : { type: 'xml-to-pdf:file', fileName, data: ArrayBuffer }
- *   3. 本アプリ → opener : progress / complete / error を随時通知
+ *   3. 本アプリ → opener : progress / error を随時通知
+ *   4. 本アプリ → opener : { type: 'xml-to-pdf:result', fileName, data: ArrayBuffer }
+ *      （変換結果ZIP。保存は opener 側で行い、本アプリのウィンドウは自動で閉じる）
  *
  * ready には一切データを載せないため targetOrigin は '*' で送る（opener の
  * origin はクロスオリジンでは読めない）。受信側は ALLOWED_OPENER_ORIGIN_PATTERNS
@@ -15,6 +17,9 @@
  */
 
 export const HANDOFF_QUERY_PARAM = 'handoff';
+
+/** 結果を opener へ渡してからウィンドウを閉じるまでの猶予 */
+export const HANDOFF_CLOSE_DELAY_MS = 800;
 
 export type HandoffInboundMessage = {
   type: 'xml-to-pdf:file';
@@ -25,8 +30,23 @@ export type HandoffInboundMessage = {
 export type HandoffOutboundMessage =
   | { type: 'xml-to-pdf:ready' }
   | { type: 'xml-to-pdf:progress'; percent: number; message: string | null }
-  | { type: 'xml-to-pdf:complete' }
+  | { type: 'xml-to-pdf:result'; fileName: string; data: ArrayBuffer }
   | { type: 'xml-to-pdf:error'; message: string };
+
+/** Content-Disposition（/api/download の filename*=UTF-8''...）からファイル名を取り出す */
+export function parseContentDispositionFileName(header: string | null): string | null {
+  if (!header) return null;
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return null;
+    }
+  }
+  const plainMatch = header.match(/filename="?([^";]+)"?/i);
+  return plainMatch ? plainMatch[1] : null;
+}
 
 const ALLOWED_OPENER_ORIGIN_PATTERNS: RegExp[] = [
   // 本番・プレビュー（spot-s-admin-xxxx-spot-s-system.vercel.app 等）

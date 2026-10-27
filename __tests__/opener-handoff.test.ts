@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isAllowedOpenerOrigin,
   isHandoffFileMessage,
+  parseContentDispositionFileName,
   sanitizeHandoffFileName,
 } from '@/lib/opener-handoff';
 
@@ -28,6 +29,17 @@ describe('isHandoffFileMessage', () => {
     expect(isHandoffFileMessage({ type: 'xml-to-pdf:file', fileName: 'a.zip', data: 'x' })).toBe(false);
     expect(isHandoffFileMessage({ type: 'other', fileName: 'a.zip', data: new ArrayBuffer(1) })).toBe(false);
     expect(isHandoffFileMessage(null)).toBe(false);
+  });
+});
+
+describe('parseContentDispositionFileName', () => {
+  it('/api/download の UTF-8 ファイル名を復元する', () => {
+    const name = '公文書_123_変換結果.zip';
+    expect(
+      parseContentDispositionFileName(`attachment; filename*=UTF-8''${encodeURIComponent(name)}`)
+    ).toBe(name);
+    expect(parseContentDispositionFileName('attachment; filename="a.zip"')).toBe('a.zip');
+    expect(parseContentDispositionFileName(null)).toBe(null);
   });
 });
 

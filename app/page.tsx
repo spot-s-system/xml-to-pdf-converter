@@ -7,7 +7,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { FileText, Download, AlertCircle, Terminal, Copy, CheckCircle } from "lucide-react";
 import {
+  HANDOFF_CLOSE_DELAY_MS,
   HANDOFF_QUERY_PARAM,
+  parseContentDispositionFileName,
   type HandoffOutboundMessage,
   isAllowedOpenerOrigin,
   isHandoffFileMessage,
@@ -42,13 +44,38 @@ export default function Home() {
   const [handoffDone, setHandoffDone] = useState(false);
   const handoffOriginRef = useRef<string | null>(null);
 
-  const postToOpener = (message: HandoffOutboundMessage) => {
+  const postToOpener = (message: HandoffOutboundMessage, transfer: Transferable[] = []) => {
     const origin = handoffOriginRef.current;
     if (!origin || !window.opener) return;
     try {
-      window.opener.postMessage(message, origin);
+      window.opener.postMessage(message, origin, transfer);
     } catch (err) {
       console.error('Failed to notify opener:', err);
+    }
+  };
+
+  // ハンドオフ時は結果ZIPを最後まで受信して opener へ渡し、このウィンドウを閉じる。
+  // （<a download> で保存させてすぐ閉じると、ブラウザによっては保存が途中で打ち切られ、
+  //   また保存の完了をページ側で知る手段もないため、保存自体は opener 側で行う）
+  const handOffResultToOpener = async (downloadUrl: string) => {
+    try {
+      const response = await fetch(downloadUrl);
+      if (!response.ok) throw new Error(`HTTPエラー: ${response.status}`);
+      const fileName =
+        parseContentDispositionFileName(response.headers.get('Content-Disposition')) ??
+        '変換結果.zip';
+      const data = await response.arrayBuffer();
+      postToOpener({ type: 'xml-to-pdf:result', fileName, data }, [data]);
+      setHandoffDone(true);
+      setProgress(0);
+      setIsConverting(false);
+      setZipFile(null);
+      // メッセージが opener に届いてから閉じる
+      window.setTimeout(() => window.close(), HANDOFF_CLOSE_DELAY_MS);
+    } catch (err) {
+      console.error('Handoff result failed:', err);
+      setError('変換結果の受け渡しに失敗しました。もう一度お試しください');
+      setIsConverting(false);
     }
   };
 
@@ -197,6 +224,13 @@ export default function Home() {
       // サーバー側ストリーミング配信URL（/api/download/{id}）
       // Content-Disposition ヘッダーがファイル名を提供するため、navigation でダウンロード
       if (downloadUrl.startsWith('/api/download/') || downloadUrl.startsWith('http')) {
+        // opener（spot-s-admin）から受け取ったZIPなら、結果も opener へ返して自動で閉じる。
+        // opener が既に閉じられていれば従来どおりこのウィンドウで保存する。
+        if (handoffOriginRef.current && window.opener && !window.opener.closed) {
+          void handOffResultToOpener(downloadUrl);
+          return;
+        }
+
         const a = document.createElement('a');
         a.href = downloadUrl;
         a.rel = 'noopener';
@@ -205,11 +239,6 @@ export default function Home() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-
-        if (handoffOriginRef.current) {
-          postToOpener({ type: 'xml-to-pdf:complete' });
-          setHandoffDone(true);
-        }
 
         setTimeout(() => {
           setProgress(0);
@@ -394,11 +423,11 @@ export default function Home() {
             {handoffDone ? (
               <p className="flex items-center gap-2 font-semibold">
                 <CheckCircle className="h-4 w-4" />
-                変換が完了し、ダウンロードを開始しました。保存を確認したらこのウィンドウを閉じてください。
+                変換が完了し、ポータルの画面へ結果を渡しました。このウィンドウは自動で閉じます。
               </p>
             ) : (
               <p className="font-semibold">
-                ポータル（e-Gov申請一覧）から受け取った公文書を変換しています。完了するとこのウィンドウからダウンロードされます。
+                ポータル（e-Gov申請一覧）から受け取った公文書を変換しています。完了するとポータルの画面でダウンロードされ、このウィンドウは自動で閉じます。
               </p>
             )}
           </div>
