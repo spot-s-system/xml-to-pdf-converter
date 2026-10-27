@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { FileText, Download, AlertCircle, Terminal, Copy, CheckCircle } from "lucide-react";
+import {
+  HANDOFF_QUERY_PARAM,
+  type HandoffOutboundMessage,
+  isAllowedOpenerOrigin,
+  isHandoffFileMessage,
+  sanitizeHandoffFileName,
+} from "@/lib/opener-handoff";
 
 // 秒数を「Xm Ys」形式に整形（1分未満なら「Ys」のみ）
 function formatDuration(seconds: number): string {
@@ -29,6 +36,78 @@ export default function Home() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [folderProgress, setFolderProgress] = useState<{ current: number; total: number } | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  // spot-s-admin（opener）からZIPを受け取って変換しているときの opener の origin。
+  // 進捗通知はこの origin 宛てにだけ送る（lib/opener-handoff.ts 参照）。
+  const [handoffOrigin, setHandoffOrigin] = useState<string | null>(null);
+  const [handoffDone, setHandoffDone] = useState(false);
+  const handoffOriginRef = useRef<string | null>(null);
+
+  const postToOpener = (message: HandoffOutboundMessage) => {
+    const origin = handoffOriginRef.current;
+    if (!origin || !window.opener) return;
+    try {
+      window.opener.postMessage(message, origin);
+    } catch (err) {
+      console.error('Failed to notify opener:', err);
+    }
+  };
+
+  // ハンドオフモード: `/?handoff=1` で opener から開かれたら ready を送り、ZIPを待つ
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has(HANDOFF_QUERY_PARAM) || !window.opener) return;
+
+    const opener = window.opener as Window;
+    let received = false;
+    const sendReady = () => {
+      if (received) return;
+      // ready にはデータを載せないため '*' で送る（opener の origin は読めない）
+      const ready: HandoffOutboundMessage = { type: 'xml-to-pdf:ready' };
+      opener.postMessage(ready, '*');
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== opener) return;
+      if (!isAllowedOpenerOrigin(event.origin)) return;
+      if (!isHandoffFileMessage(event.data)) return;
+      received = true;
+      window.clearInterval(readyTimer);
+      handoffOriginRef.current = event.origin;
+      setHandoffOrigin(event.origin);
+      setHandoffDone(false);
+      setZipFile(
+        new File([event.data.data], sanitizeHandoffFileName(event.data.fileName), {
+          type: 'application/zip',
+        })
+      );
+    };
+
+    const readyTimer = window.setInterval(sendReady, 1000);
+    window.addEventListener('message', onMessage);
+    sendReady();
+    // opener が応答しないまま待ち続けないよう、1分で ready の再送を止める
+    const stopTimer = window.setTimeout(() => window.clearInterval(readyTimer), 60_000);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      window.clearInterval(readyTimer);
+      window.clearTimeout(stopTimer);
+    };
+  }, []);
+
+  // 変換の進捗を opener へ通知する
+  useEffect(() => {
+    if (!handoffOrigin || !isConverting) return;
+    postToOpener({
+      type: 'xml-to-pdf:progress',
+      percent: progress,
+      message: logs.length > 0 ? logs[logs.length - 1] : null,
+    });
+  }, [handoffOrigin, isConverting, progress, logs]);
+
+  useEffect(() => {
+    if (!handoffOrigin || !error) return;
+    postToOpener({ type: 'xml-to-pdf:error', message: error });
+  }, [handoffOrigin, error]);
 
   // ログ末尾への自動スクロール（ログコンテナの内部スクロールのみ動かす）
   //
@@ -126,6 +205,11 @@ export default function Home() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+
+        if (handoffOriginRef.current) {
+          postToOpener({ type: 'xml-to-pdf:complete' });
+          setHandoffDone(true);
+        }
 
         setTimeout(() => {
           setProgress(0);
@@ -303,6 +387,22 @@ export default function Home() {
             lg未満は1カラムに折り返して縦並びになる */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-6">
           <div className="lg:col-span-3 space-y-4 lg:space-y-6">
+
+        {/* spot-s-admin（e-Gov申請一覧の公文書）から受け取ったZIPを変換しているときの案内 */}
+        {handoffOrigin && (
+          <div className="rounded-lg border border-sky-300 dark:border-sky-700 bg-sky-50/70 dark:bg-sky-900/20 px-4 py-3 text-sm text-sky-900 dark:text-sky-100">
+            {handoffDone ? (
+              <p className="flex items-center gap-2 font-semibold">
+                <CheckCircle className="h-4 w-4" />
+                変換が完了し、ダウンロードを開始しました。保存を確認したらこのウィンドウを閉じてください。
+              </p>
+            ) : (
+              <p className="font-semibold">
+                ポータル（e-Gov申請一覧）から受け取った公文書を変換しています。完了するとこのウィンドウからダウンロードされます。
+              </p>
+            )}
+          </div>
+        )}
 
         {/* アップロードカード */}
         <Card className="shadow-lg">
