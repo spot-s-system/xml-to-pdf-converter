@@ -14,6 +14,7 @@ import { generateSafePdfFileName, generateIndividualPdfFileName } from './pdf-na
 import { applyXsltTransformation } from './xslt-processor';
 import { generatePdfFromHtml } from './pdf-generator';
 import { optimizeXslForPdf } from './xsl-adjuster';
+import { detectFixedNameFromPdf, isArrivalNumberPdfFileName } from './pdf-title-detector';
 import {
   isShahoKoubunshoPdfFileName,
   splitShahoKoubunshoPdf,
@@ -1247,6 +1248,16 @@ export async function processOtherFile(
 
   // 通常のリネーム (buffer は呼び出し側で sourcePath からストリーム)
   const targetFileName = renamePdfIfNeeded(fileName, folderName);
+
+  // フォルダ名・XMLに手掛かりが無い `{到達番号}.pdf`（admin の公文書DL由来の
+  // 労働局受付控えなど）は、PDF 本文の帳票タイトルから固定名を決める
+  if (targetFileName === fileName && isArrivalNumberPdfFileName(fileName)) {
+    const detected = await detectFixedNameFromPdf(await fs.readFile(sourcePath));
+    if (detected) {
+      return [{ name: detected, splitFromOriginal: fileName }];
+    }
+  }
+
   return [{ name: targetFileName }];
 }
 
